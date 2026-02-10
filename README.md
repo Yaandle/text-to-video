@@ -93,7 +93,7 @@ All videos are generated frame-by-frame using MoviePy + PIL.
 ---
 
 ## Project Structure
-
+```bash
 text-to-video/
 ├── video_generator.py        # Text → narrated video
 ├── code_visualizer.py        # Code → narrated code video
@@ -103,7 +103,7 @@ text-to-video/
 ├── outputs/                  # Generated videos & audio (ignored by git)
 ├── .env                      # API keys (ignored by git)
 └── .gitignore
-
+```
 ## Setup
 
 ### Requirements
