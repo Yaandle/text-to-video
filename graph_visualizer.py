@@ -23,7 +23,7 @@ PADDING = 80
 FONT_SIZE = 24
 TITLE_FONT_SIZE = 36
 
-FONT_PATH = "C:\\Windows\\Fonts\\Arial.ttf"
+FONT_PATH = config.FONT_PATH_ARIAL
 
 
 def generate_bar_chart_video(data: dict, title: str, narration: str, 

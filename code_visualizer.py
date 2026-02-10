@@ -23,8 +23,8 @@ CODE_FONT_SIZE = 28
 TITLE_FONT_SIZE = 32
 
 # Font paths - monospace for code
-CODE_FONT_PATH = "C:\\Windows\\Fonts\\consola.ttf"  # Consolas
-TITLE_FONT_PATH = "C:\\Windows\\Fonts\\Arial.ttf"
+CODE_FONT_PATH = config.FONT_PATH_CONSOLAS
+TITLE_FONT_PATH = config.FONT_PATH_ARIAL
 
 
 def generate_code_video(code: str, language: str, narration: str, output_name: str = "code_video"):
@@ -134,7 +134,7 @@ def generate_code_video(code: str, language: str, narration: str, output_name: s
             from pygments.lexers import get_lexer_by_name
             from pygments.token import Token
             lexer = get_lexer_by_name(language, stripall=True)
-        except:
+        except Exception:
             lexer = None
         
         # Draw code lines
