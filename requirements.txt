@@ -1,0 +1,11 @@
+moviepy==2.2.0
+Pillow==11.3.0
+numpy
+imageio
+imageio-ffmpeg
+opencv-python-headless
+tqdm
+python-dotenv
+elevenlabs
+openai
+python-dotenv
