@@ -115,7 +115,7 @@ text-to-video/
 ### Installation
 
 ```bash
-git clone [https://github.com/Yaandle/text-to-video.git](https://github.com/Yaandle/text-to-video.git)
+git clone https://github.com/Yaandle/text-to-video.git
 cd text-to-video
 python -m venv ttv_venv
 ttv_venv\Scripts\activate
