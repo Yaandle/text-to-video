@@ -22,7 +22,7 @@ if not ELEVENLABS_API_KEY:
         "NEVER hard-code secrets in source code."
     )
 
-VOICE_ID = "RF0O2wEkFIOz81sMfUPn"
+VOICE_ID = "FIOz81sMfUPn"
 MODEL_ID = "eleven_multilingual_v2"
 
 # Font Paths (Platform-aware)
