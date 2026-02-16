@@ -144,3 +144,5 @@ python main.py prompt.txt
 [VisualiseGraph:bar|dark]Python:85,JavaScript:72[/VisualiseGraph]
 [VisualiseGraph:line|matrix]Jan:10,Feb:20,Mar:15[/VisualiseGraph]
 ```
+python video_generator.py
+```
