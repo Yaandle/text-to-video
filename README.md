@@ -77,15 +77,15 @@ All videos are generated frame-by-frame using MoviePy + PIL.
 
 **Supported visualisers:**
 
-* 📝 **Text Video** (`video_generator.py`)
+* 📝 **Text Video** (`main.py`)         
     * Plain background
     * Typewriter-style text animation
     * Narrated speech synced to text
-* 💻 **Code Visualizer** (`code_visualizer.py`)
+* 💻 **Code Visualizer** (`code_visualiser.py`)
     * Line-by-line code reveal
     * Syntax-aware coloring
     * Carbon-style window layout
-* 📊 **Graph Visualizer** (`graph_visualizer.py`)
+* 📊 **Graph Visualizer** (`graph_visualiser.py`)
     * Animated bar charts
     * Animated line graphs
     * Narrated explanations
@@ -93,16 +93,17 @@ All videos are generated frame-by-frame using MoviePy + PIL.
 ---
 
 ## Project Structure
-
+```bash
 text-to-video/
-├── video_generator.py        # Text → narrated video
-├── code_visualizer.py        # Code → narrated code video
-├── graph_visualizer.py       # Data → animated charts
+├── main.py                   # Text → narrated video (Renamed)
+├── code_visualiser.py        # Code → narrated code video
+├── graph_visualiser.py       # Data → animated charts
 ├── config.py                 # Central configuration & env loading
 ├── requirements.txt
 ├── outputs/                  # Generated videos & audio (ignored by git)
 ├── .env                      # API keys (ignored by git)
 └── .gitignore
+```
 
 ## Setup
 
@@ -111,15 +112,17 @@ text-to-video/
 * Python 3.9+
 * FFmpeg available on system PATH
 * ElevenLabs API key
+* Playwright (for code visualization)
 
 ### Installation
 
 ```bash
-git clone [https://github.com/Yaandle/text-to-video.git](https://github.com/Yaandle/text-to-video.git)
+git clone https://github.com/Yaandle/text-to-video.git
 cd text-to-video
 python -m venv ttv_venv
 ttv_venv\Scripts\activate
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 ### Environment Variables
@@ -132,5 +135,12 @@ ELEVENLABS_API_KEY=sk-...
 
 ### Text -> Video
 ```bash
-python video_generator.py
+python main.py prompt.txt
+```
+
+**Marker syntax:**
+```
+[VisualiseCode]def hello():\n    print("Hi")[/VisualiseCode]
+[VisualiseGraph:bar|dark]Python:85,JavaScript:72[/VisualiseGraph]
+[VisualiseGraph:line|matrix]Jan:10,Feb:20,Mar:15[/VisualiseGraph]
 ```
