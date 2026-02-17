@@ -12,13 +12,9 @@ from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import numpy as np
 import config
-from code_visualiser import TerminalPreviewGenerator
+from code_visualiser import TerminalPreviewGenerator, create_code_video_clip
 from graph_visualiser import generate_bar_chart_video, generate_line_graph_video
 from concurrent.futures import ThreadPoolExecutor
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 
 try:
     from playwright.sync_api import sync_playwright
@@ -32,15 +28,14 @@ except ImportError:
 
 VIDEO_WIDTH = config.VIDEO_WIDTH
 VIDEO_HEIGHT = config.VIDEO_HEIGHT
+
+BACKGROUND_COLOR = config.BACKGROUND_COLOR
 FPS = config.FPS
-
-BACKGROUND_COLOR = (255, 255, 255)
-TEXT_COLOR = (0, 0, 0)
-FONT_SIZE = 50
-TEXT_WRAP_WIDTH = 40
-MAX_DISPLAY_LINES = 2
-
+TEXT_COLOR = config.TEXT_COLOR
+FONT_SIZE = config.FONT_SIZE
 FONT_PATH = config.FONT_PATH_ARIAL
+TEXT_WRAP_WIDTH = config.TEXT_WRAP_WIDTH
+MAX_DISPLAY_LINES = config.MAX_DISPLAY_LINES
 
 
 # ----------------------
@@ -128,66 +123,6 @@ def parse_prompt_with_markers(prompt: str) -> dict:
     }
 
 
-def create_code_video_clip(code: str, theme: str, mode: str, duration: float):
-    """Create a video clip of the code animation by recording the browser.
-    
-    OPTIMIZATION 3: Close browser immediately after animation completes.
-    """
-    if not HAS_PLAYWRIGHT:
-        raise RuntimeError("Playwright is required for code visualization.")
-    
-    gen = TerminalPreviewGenerator(theme=theme)
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False, encoding="utf-8") as f:
-        html_path = f.name
-
-    gen.generate(
-        code=code,
-        language="python",
-        mode=mode,
-        duration=duration,
-        output_path=html_path
-    )
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            context = browser.new_context(
-                viewport={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT},
-                record_video_dir=tempfile.gettempdir(),
-                record_video_size={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT}
-            )
-            
-            page = context.new_page()
-            page.goto(f"file://{os.path.abspath(html_path)}")
-            page.wait_for_load_state("networkidle")
-            
-            # Wait for animation to complete
-            if mode.lower() == "typewriter":
-                wait_time = int((duration * 1000) + 2000)  # Add 2 second buffer
-                print(f"  ⏱️  Waiting {wait_time/1000:.1f}s for typewriter animation...")
-                page.wait_for_timeout(wait_time)
-            else:
-                page.wait_for_timeout(2000)
-            
-            # OPTIMIZATION 3: Get video path and close immediately
-            page.wait_for_timeout(500)  # Brief buffer for encoder
-            video_path = page.video.path()
-            
-            # Close browser ASAP to free resources
-            context.close()
-            browser.close()
-            
-            # Load as MoviePy clip
-            clip = VideoFileClip(video_path)
-            
-            return clip
-
-    finally:
-        if os.path.exists(html_path):
-            os.unlink(html_path)
-
-
 def parse_graph_data(content: str) -> dict:
     """Parse graph data from marker content.
     
@@ -208,85 +143,6 @@ def parse_graph_data(content: str) -> dict:
             except ValueError:
                 pass
     return data
-
-
-# ----------------------
-# OPTIMIZATION 1: Direct graph clip generation (no file I/O)
-# ----------------------
-def create_graph_clip_direct(data: dict, graph_type: str, theme: str, duration: float, title: str = "Data Visualization"):
-    """Generate graph clip directly as VideoClip without intermediate file I/O.
-    
-    Args:
-        data: Dictionary of {label: value}
-        graph_type: 'bar' or 'line'
-        theme: 'heaven', 'dark', or 'matrix'
-        duration: Clip duration in seconds
-        title: Graph title
-    
-    Returns:
-        VideoClip with graph visualization
-    """
-    # Theme colors
-    themes = {
-        'heaven': {
-            'bg': '#FFFFFF',
-            'text': '#000000',
-            'primary': '#4A90E2',
-            'grid': '#E0E0E0'
-        },
-        'dark': {
-            'bg': '#1E1E1E',
-            'text': '#FFFFFF',
-            'primary': '#61DAFB',
-            'grid': '#333333'
-        },
-        'matrix': {
-            'bg': '#000000',
-            'text': '#00FF00',
-            'primary': '#00FF00',
-            'grid': '#003300'
-        }
-    }
-    
-    theme_colors = themes.get(theme, themes['heaven'])
-    
-    # Create figure
-    fig, ax = plt.subplots(figsize=(VIDEO_WIDTH/100, VIDEO_HEIGHT/100), dpi=100)
-    fig.patch.set_facecolor(theme_colors['bg'])
-    ax.set_facecolor(theme_colors['bg'])
-    
-    labels = list(data.keys())
-    values = list(data.values())
-    
-    if graph_type == 'bar':
-        bars = ax.bar(labels, values, color=theme_colors['primary'], alpha=0.8)
-        ax.set_ylabel('Value', color=theme_colors['text'], fontsize=14)
-    else:  # line
-        ax.plot(labels, values, color=theme_colors['primary'], linewidth=3, marker='o', markersize=8)
-        ax.set_ylabel('Value', color=theme_colors['text'], fontsize=14)
-    
-    ax.set_title(title, color=theme_colors['text'], fontsize=20, pad=20)
-    ax.set_xlabel('Category', color=theme_colors['text'], fontsize=14)
-    ax.tick_params(colors=theme_colors['text'], labelsize=12)
-    ax.grid(True, alpha=0.3, color=theme_colors['grid'])
-    
-    # Tight layout
-    plt.tight_layout()
-    
-    # Convert figure to numpy array
-    fig.canvas.draw()
-    frame = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
-    frame = frame.reshape(fig.canvas.get_width_height()[::-1] + (4,))  # ARGB format
-    frame = frame[:, :, 1:]  # Remove alpha channel to get RGB
-    
-    plt.close(fig)
-    
-    # Create VideoClip with static frame
-    def make_frame(t):
-        return frame
-    
-    clip = VideoClip(make_frame, duration=duration)
-    return clip
 
 
 def calculate_section_timings(clean_text: str, sections: list, total_duration: float, prefs: dict) -> list:
@@ -602,7 +458,10 @@ def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
 
 
 def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
-    """Render all graph clips using direct generation (OPTIMIZATION 1)."""
+    """Render all graph clips using optimized direct clip generation.
+    
+    OPTIMIZATION 1: Uses return_clip=True to get clips directly without file I/O.
+    """
     graph_clips = {}
     
     if not prefs.get('use_graph_visualizer', True):
@@ -626,17 +485,31 @@ def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
                 try:
                     section_duration = section['end_time'] - section['start_time']
                     
-                    # OPTIMIZATION 1: Direct clip generation (no file I/O)
-                    print(f"  → Generating {graph_type} graph directly...")
-                    clip = create_graph_clip_direct(
-                        data=graph_data,
-                        graph_type=graph_type,
-                        theme=theme,
-                        duration=section_duration,
-                        title="Data Visualization"
-                    )
+                    # OPTIMIZATION 1: Get clip directly without file I/O
+                    print(f"  → Generating {graph_type} graph directly in memory...")
+                    if graph_type == 'bar':
+                        clip = generate_bar_chart_video(
+                            data=graph_data,
+                            title="Data Visualization",
+                            narration="",
+                            output_name=f"graph_{i}",
+                            theme=theme,
+                            return_clip=True  # Get clip directly
+                        )
+                    else:  # line
+                        clip = generate_line_graph_video(
+                            data=graph_data,
+                            title="Data Visualization",
+                            narration="",
+                            output_name=f"graph_{i}",
+                            theme=theme,
+                            return_clip=True  # Get clip directly
+                        )
                     
+                    # Adjust duration and start time
+                    clip = clip.with_duration(section_duration)
                     clip = clip.with_start(section['start_time'])
+                    
                     graph_clips[i] = clip
                     print(f"✅ Generated graph clip for section {i+1} (duration: {section_duration:.2f}s)")
                     
@@ -654,7 +527,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     """Generate the main text-to-video with narration and embedded visualisations.
     
     Includes all optimizations:
-    - OPTIMIZATION 1: Direct graph generation (no file I/O)
+    - OPTIMIZATION 1: Direct graph clip generation (no file I/O)
     - OPTIMIZATION 2: Cached text frames
     - OPTIMIZATION 3: Fast browser close
     - OPTIMIZATION 4: Managed clips
