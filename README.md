@@ -100,6 +100,8 @@ text-to-video/
 ├── graph_visualiser.py       # Data → animated charts
 ├── config.py                 # Central configuration & env loading
 ├── requirements.txt
+├── static/                   # Static assets for HTML previews
+│   └── master.css            # Terminal styling for code visualizer
 ├── outputs/                  # Generated videos & audio (ignored by git)
 ├── .env                      # API keys (ignored by git)
 └── .gitignore

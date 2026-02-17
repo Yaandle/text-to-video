@@ -12,6 +12,14 @@ load_dotenv()
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 720
 FPS = 15
+BACKGROUND_COLOR = (255, 255, 255)
+TEXT_COLOR = (0, 0, 0)               # RGB tuple
+
+# Text rendering
+FONT_SIZE = 50
+TEXT_WRAP_WIDTH = 40
+MAX_DISPLAY_LINES = 2
+
 
 # ElevenLabs Settings
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
