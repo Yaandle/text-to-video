@@ -13,7 +13,7 @@ import textwrap
 import numpy as np
 import config
 from code_visualiser import TerminalPreviewGenerator, create_code_video_clip
-from graph_visualiser import generate_bar_chart_video, generate_line_graph_video
+from graph_visualiser import create_bar_chart_clip, create_line_graph_clip
 from concurrent.futures import ThreadPoolExecutor
 
 try:
@@ -21,6 +21,7 @@ try:
     HAS_PLAYWRIGHT = True
 except ImportError:
     HAS_PLAYWRIGHT = False
+
 
 # ----------------------
 # Configuration
@@ -33,14 +34,11 @@ BACKGROUND_COLOR = config.BACKGROUND_COLOR
 FPS = config.FPS
 TEXT_COLOR = config.TEXT_COLOR
 FONT_SIZE = config.FONT_SIZE
-FONT_PATH = config.FONT_PATH_ARIAL
+FONT_PATH = config.FONT_PATH_ATKINSON
 TEXT_WRAP_WIDTH = config.TEXT_WRAP_WIDTH
 MAX_DISPLAY_LINES = config.MAX_DISPLAY_LINES
 
 
-# ----------------------
-# OPTIMIZATION 4: Managed Clip Context Manager
-# ----------------------
 class ManagedClip:
     """Context manager for automatic clip cleanup."""
     def __init__(self, clip):
@@ -273,8 +271,6 @@ def select_from_list(items: list, prompt: str = "Select an option") -> str:
 
 def get_startup_preferences() -> dict:
     """Get user preferences at startup.
-    
-    OPTIMIZATION 6: Add test FPS option for faster preview rendering.
     """
     display_header()
     
@@ -285,7 +281,7 @@ def get_startup_preferences() -> dict:
         "use_graph_visualizer": prompt_yes_no("Generate graph visualisation?", default=config.USE_GRAPH_VISUALIZER_DEFAULT),
     }
     
-    # OPTIMIZATION 6: Lower FPS for test mode
+    # Lower FPS for test mode
     if not prefs["generate_audio"]:
         prefs["test_fps"] = 5  # Fast preview rendering
         print("ℹ️  Test mode: Using 5 FPS for faster rendering")
@@ -304,17 +300,8 @@ def get_startup_preferences() -> dict:
     return prefs
 
 
-# ----------------------
-# OPTIMIZATION 5: Optimized silent audio generation with chunked streaming
-# ----------------------
 def create_silent_audio(duration: float) -> AudioFileClip:
     """Create silent audio clip efficiently using chunked writing.
-    
-    Args:
-        duration: Duration in seconds
-    
-    Returns:
-        AudioFileClip with silent audio
     """
     import wave
     
@@ -342,12 +329,8 @@ def create_silent_audio(duration: float) -> AudioFileClip:
     
     return AudioFileClip(temp_path)
 
-
-# ----------------------
-# OPTIMIZATION 2: Cached text frame generation
-# ----------------------
 def create_text_clip_optimized(sections: list, duration: float, font: ImageFont.FreeTypeFont):
-    """Create text clip with frame caching to reduce PIL overhead.
+    """Create a high-quality, minimal floating text clip with typewriter cursor and optional background effects.
     
     Args:
         sections: List of timed sections
@@ -357,64 +340,90 @@ def create_text_clip_optimized(sections: list, duration: float, font: ImageFont.
     Returns:
         VideoClip with optimized text rendering
     """
+    import math
+
     frame_cache = {}
-    cache_interval = 0.1  # Cache every 100ms
+    cache_interval = 0.05  # cache every 50ms for smoother cursor
     
+    # Cursor config
+    CURSOR_CHAR = "│"
+    CURSOR_COLOR = (255, 255, 255, 180)  # subtle opacity white
+    CURSOR_BLINK_SPEED = 0.6  # seconds per blink cycle
+
+    LEFT_MARGIN = 60
+    RIGHT_MARGIN = 60
+    TOP_MARGIN = 80
+    BOTTOM_MARGIN = 80
+    LINE_SPACING = 6
+
+    # Background gradient/shadow
+    def draw_background(draw_obj):
+        """Draw subtle vertical gradient for floating effect."""
+        for y in range(VIDEO_HEIGHT):
+            ratio = y / VIDEO_HEIGHT
+            r = int(BACKGROUND_COLOR[0] * (0.95 + 0.05 * ratio))
+            g = int(BACKGROUND_COLOR[1] * (0.95 + 0.05 * ratio))
+            b = int(BACKGROUND_COLOR[2] * (0.95 + 0.05 * ratio))
+            draw_obj.line([(0, y), (VIDEO_WIDTH, y)], fill=(r, g, b))
+
     def generate_text_frame(t):
-        """Generate a single text frame."""
+        """Generate a single text frame with typewriter cursor."""
         img = Image.new('RGB', (VIDEO_WIDTH, VIDEO_HEIGHT), color=BACKGROUND_COLOR)
         draw = ImageDraw.Draw(img)
 
-        # Find which section we're in
+        draw_background(draw)
+
+        # Determine current section
         current_section = None
         for section in sections:
             if section['start_time'] <= t < section['end_time']:
                 current_section = section
                 break
-        
         if current_section is None and sections:
             current_section = sections[-1]
-        
+
         if current_section and current_section['type'] == 'text':
             content = current_section['content']
             section_duration = current_section['end_time'] - current_section['start_time']
-            section_progress = (t - current_section['start_time']) / section_duration if section_duration > 0 else 1.0
-            
-            chars_to_display = int(len(content) * section_progress)
+            progress = (t - current_section['start_time']) / section_duration if section_duration > 0 else 1.0
+            chars_to_display = int(len(content) * progress)
             display_text = content[:chars_to_display]
-            
-            current_lines = textwrap.wrap(display_text, width=TEXT_WRAP_WIDTH)
-            if len(current_lines) > MAX_DISPLAY_LINES:
-                current_lines = current_lines[-MAX_DISPLAY_LINES:]
-            
-            final_text = "\n".join(current_lines)
 
-            bbox = draw.multiline_textbbox((0, 0), final_text, font=font, align='center')
+            lines = textwrap.wrap(display_text, width=TEXT_WRAP_WIDTH)
+            if len(lines) > MAX_DISPLAY_LINES:
+                lines = lines[-MAX_DISPLAY_LINES:]
+            final_text = "\n".join(lines)
+
+            bbox = draw.multiline_textbbox((0, 0), final_text, font=font, spacing=LINE_SPACING, align="left")
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
-            
-            x = (VIDEO_WIDTH - text_width) / 2
-            y = (VIDEO_HEIGHT * 2 / 3) - (text_height / 2)
+            x = LEFT_MARGIN
+            y = TOP_MARGIN + (VIDEO_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN - text_height) / 2
 
-            draw.multiline_text((x, y), final_text, font=font, fill=TEXT_COLOR, align='center')
-        
+            # Draw text
+            draw.multiline_text((x, y), final_text, font=font, fill=TEXT_COLOR, spacing=LINE_SPACING, align="left")
+
+            # Draw typewriter cursor
+            if current_section['end_time'] - current_section['start_time'] > 0:
+                blink_phase = (t % CURSOR_BLINK_SPEED) / CURSOR_BLINK_SPEED
+                cursor_visible = blink_phase < 0.5
+                if cursor_visible:
+                    last_line = lines[-1] if lines else ""
+                    cursor_x = x + draw.textlength(last_line, font=font)
+                    line_height = font.getbbox("Ay")[3] - font.getbbox("Ay")[1]
+                    cursor_y = y + (len(lines) - 1) * (line_height + LINE_SPACING)
+                    draw.text((cursor_x, cursor_y), CURSOR_CHAR, font=font, fill=CURSOR_COLOR)
+
         return np.array(img)
-    
+
     def make_frame(t):
-        """Make frame with caching."""
         cache_key = int(t / cache_interval)
-        
         if cache_key not in frame_cache:
             frame_cache[cache_key] = generate_text_frame(t)
-        
         return frame_cache[cache_key]
-    
+
     return VideoClip(make_frame, duration=duration)
 
-
-# ----------------------
-# OPTIMIZATION 7: Parallel pre-rendering
-# ----------------------
 def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
     """Render all code clips (serial since Playwright isn't thread-safe)."""
     code_clips = {}
@@ -488,7 +497,7 @@ def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
                     # OPTIMIZATION 1: Get clip directly without file I/O
                     print(f"  → Generating {graph_type} graph directly in memory...")
                     if graph_type == 'bar':
-                        clip = generate_bar_chart_video(
+                        clip = create_bar_chart_clip(
                             data=graph_data,
                             title="Data Visualization",
                             narration="",
@@ -497,7 +506,7 @@ def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
                             return_clip=True  # Get clip directly
                         )
                     else:  # line
-                        clip = generate_line_graph_video(
+                        clip = create_line_graph_clip(
                             data=graph_data,
                             title="Data Visualization",
                             narration="",
@@ -525,16 +534,7 @@ def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
 
 def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) -> str:
     """Generate the main text-to-video with narration and embedded visualisations.
-    
-    Includes all optimizations:
-    - OPTIMIZATION 1: Direct graph clip generation (no file I/O)
-    - OPTIMIZATION 2: Cached text frames
-    - OPTIMIZATION 3: Fast browser close
-    - OPTIMIZATION 4: Managed clips
-    - OPTIMIZATION 5: Chunked silent audio
-    - OPTIMIZATION 6: Test FPS
-    - OPTIMIZATION 7: Parallel rendering (where safe)
-    - OPTIMIZATION 8: Fast codec preset
+
     """
     if prefs is None:
         prefs = {}
@@ -574,20 +574,13 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
         print("✅ Audio generated")
         audio_clip = AudioFileClip(audio_path)
     else:
-        # OPTIMIZATION 5: Chunked silent audio generation
         print("\n⏭️  Skipping audio generation (testing mode)")
         test_duration = 30.0  # Fixed duration for testing
         audio_clip = create_silent_audio(test_duration)
         print(f"⏭️  Using silent {test_duration}-second placeholder")
 
     duration = audio_clip.duration
-
-    # ----------------------
-    # Calculate Section Timings (AFTER determining audio duration)
-    # ----------------------
     timed_sections = calculate_section_timings(clean_text, sections, duration, prefs)
-    
-    # If calculated sections exceed audio duration, extend the audio
     if timed_sections and timed_sections[-1]['end_time'] > duration:
         actual_duration = timed_sections[-1]['end_time']
         print(f"⏱️  Extending duration from {duration:.1f}s to {actual_duration:.1f}s to fit visualizations")
@@ -597,10 +590,6 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
             audio_clip = create_silent_audio(actual_duration)
         
         duration = actual_duration
-
-    # ----------------------
-    # Setup Font
-    # ----------------------
     try:
         font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
     except OSError as e:
@@ -609,17 +598,13 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
         return None
 
     # ----------------------
-    # OPTIMIZATION 7: Parallel Pre-rendering (where thread-safe)
+    #  Parallel Pre-rendering (where thread-safe)
     # ----------------------
     # Note: Playwright isn't thread-safe, so code clips must be serial
     # Graphs could be parallelized but gains are minimal for 2-3 graphs
     
     code_clips_cache = render_code_clips_parallel(timed_sections, prefs)
     graph_clips_cache = render_graph_clips_parallel(timed_sections, prefs)
-
-    # ----------------------
-    # OPTIMIZATION 2: Create optimized text clip with caching
-    # ----------------------
     print("\n🎬 Creating main video with visualizations...")
     
     text_clip = create_text_clip_optimized(timed_sections, duration, font)
@@ -632,28 +617,16 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     
     # Combine all clips
     clips = [bg_clip, text_clip]
-    
-    # Add code clips
     for clip in code_clips_cache.values():
         clips.append(clip)
-    
-    # Add graph clips
     for clip in graph_clips_cache.values():
         clips.append(clip)
     
     final_clip = CompositeVideoClip(clips)
     final_clip = final_clip.with_audio(audio_clip)
-
-    # ----------------------
-    # OPTIMIZATION 6 & 8: Export with optimal settings
-    # ----------------------
     video_path = os.path.join(config.OUTPUT_DIR, "output_video.mp4")
     print(f"💾 Exporting main video to {video_path}...")
-    
-    # OPTIMIZATION 6: Use test FPS if in test mode
     export_fps = prefs.get("test_fps", FPS)
-    
-    # OPTIMIZATION 8: Fast codec preset for testing, medium for production
     codec_preset = 'ultrafast' if not prefs.get("generate_audio", True) else 'medium'
     
     final_clip.write_videofile(
@@ -679,13 +652,8 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     else:
         print("⏭️  (Audio was skipped for testing)")
     
-    # ----------------------
-    # OPTIMIZATION 4: Cleanup with managed resources
-    # ----------------------
     audio_clip.close()
     final_clip.close()
-    
-    # Close all cached clips
     for clip in code_clips_cache.values():
         clip.close()
     for clip in graph_clips_cache.values():
@@ -703,11 +671,11 @@ def main():
     print("📝 ENTER YOUR CONTENT")
     print("-"*60)
     print("\nYou can embed visualizations in your text using markers:")
-    print("  [VisualiseCode]def hello():\\n    print('Hi')[/VisualiseCode]")
-    print("  [VisualiseGraph:bar]Python:85,JavaScript:72,Go:68[/VisualiseGraph]")
-    print("  [VisualiseGraph:bar|heaven]Python:85,JS:72[/VisualiseGraph]")
-    print("  [VisualiseGraph:line]Jan:10,Feb:20,Mar:15[/VisualiseGraph]")
-    print("  [VisualiseGraph:line|dark]Data1:5,Data2:10[/VisualiseGraph]")
+    print("  [VisualiseCode] def hello():\\n    print('Hi') [/VisualiseCode]")
+    print("  [VisualiseGraph:bar] Python:85,JavaScript:72,Go:68 [/VisualiseGraph]")
+    print("  [VisualiseGraph:bar|heaven] Python:85,JS:72 [/VisualiseGraph]")
+    print("  [VisualiseGraph:line] Jan:10,Feb:20,Mar:15 [/VisualiseGraph]")
+    print("  [VisualiseGraph:line|dark] Data1:5,Data2:10 [/VisualiseGraph]")
     print("\nGraph themes: heaven (light), dark (dark mode), matrix (green terminal)")
     print()
     

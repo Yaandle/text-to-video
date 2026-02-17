@@ -74,6 +74,8 @@ def _get_font_path(font_name: str, fallback: str = "Arial.ttf") -> str:
 # Font configuration
 FONT_PATH_ARIAL = _get_font_path("Arial.ttf")
 FONT_PATH_CONSOLAS = _get_font_path("consola.ttf", fallback="Arial.ttf")
+FONT_PATH_ATKINSON = _get_font_path("Atkinson-Hyperlegible-Regular.ttf", fallback="Arial.ttf")
+
 
 # Output Paths
 OUTPUT_DIR = "outputs"

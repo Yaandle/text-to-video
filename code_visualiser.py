@@ -19,64 +19,72 @@ VIDEO_WIDTH = config.VIDEO_WIDTH
 VIDEO_HEIGHT = config.VIDEO_HEIGHT
 
 def create_code_video_clip(code: str, theme: str, mode: str, duration: float):
-    """Create a video clip of the code animation by recording the browser.
-    
-    OPTIMIZATION 3: Close browser immediately after animation completes.
+    """
+    Create a video clip of the code animation using Playwright and MoviePy.
+    Ensures CSS is loaded via absolute path and typewriter/static animations are preserved.
+
+    Args:
+        code: Python source code to display.
+        theme: Terminal theme (heaven, dark, matrix).
+        mode: Animation mode ("typewriter" or "static").
+        duration: Duration in seconds for the typewriter animation.
+
+    Returns:
+        MoviePy VideoFileClip with the animated code.
     """
     if not HAS_PLAYWRIGHT:
-        raise RuntimeError("Playwright is required for code visualization.")
-    
+        raise RuntimeError(
+            "Playwright is required for code visualization. "
+            "Install via: pip install playwright && playwright install chromium"
+        )
+
+    # Prepare absolute CSS path
+    css_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "master.css"))
+    css_file_url = f"file:///{css_path.replace(os.sep, '/')}"
+
+    # Generate HTML manually with absolute CSS path
+    html_temp = os.path.join(tempfile.gettempdir(), f"temp_preview_{theme}.html")
     gen = TerminalPreviewGenerator(theme=theme)
+    html_content = gen._create_html(code, language="python", mode=mode, duration=duration)
+    html_content = html_content.replace('./static/master.css', css_file_url)
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False, encoding="utf-8") as f:
-        html_path = f.name
-
-    gen.generate(
-        code=code,
-        language="python",
-        mode=mode,
-        duration=duration,
-        output_path=html_path
-    )
+    with open(html_temp, 'w', encoding='utf-8') as f:
+        f.write(html_content)
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-            viewport={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT},
-            record_video_dir=tempfile.gettempdir(),
-            record_video_size={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT}
-        )
-
-            
+                viewport={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT},
+                record_video_dir=tempfile.gettempdir(),
+                record_video_size={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT}
+            )
             page = context.new_page()
-            page.goto(f"file://{os.path.abspath(html_path)}")
+            page.goto(f"file:///{os.path.abspath(html_temp)}")
             page.wait_for_load_state("networkidle")
-            
+
             # Wait for animation to complete
             if mode.lower() == "typewriter":
-                wait_time = int((duration * 1000) + 2000)  # Add 2 second buffer
+                wait_time = int((duration * 1000) + 2000)
                 print(f"  ⏱️  Waiting {wait_time/1000:.1f}s for typewriter animation...")
                 page.wait_for_timeout(wait_time)
             else:
                 page.wait_for_timeout(2000)
-            
-            # OPTIMIZATION 3: Get video path and close immediately
-            page.wait_for_timeout(500)  # Brief buffer for encoder
+
+            page.wait_for_timeout(500)  # ensure recording finishes
             video_path = page.video.path()
-            
-            # Close browser ASAP to free resources
+
+            # Close browser ASAP
             context.close()
             browser.close()
-            
-            # Load as MoviePy clip
+
+            # Return MoviePy clip
             clip = VideoFileClip(video_path)
-            
             return clip
 
     finally:
-        if os.path.exists(html_path):
-            os.unlink(html_path)
+        if os.path.exists(html_temp):
+            os.unlink(html_temp)
 
 
 
