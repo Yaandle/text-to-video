@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Main.py config
+FILE_MODE_GENERATE_AUDIO = False   # default: True
+FILE_MODE_SAVE_MP3       = False   # default: True  
+GRAPH_VIS_DEFAULT_THEME  = "dark"  # default: "dark"
+
 # Video Settings
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 720

@@ -300,34 +300,50 @@ def select_from_list(items: list, prompt: str = "Select an option") -> str:
             print("❌ Please enter a valid number.")
 
 
-def get_startup_preferences() -> dict:
-    """Get user preferences at startup.
+def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
     """
+    Minimal startup preferences.
+
+    - Always ask about audio.
+    - Auto-detect code/graph usage from parsed sections.
+    - Skip redundant questions when using prompt file.
+    """
+
     display_header()
-    
+
+    has_code = any(s['type'] == 'code' for s in parsed_sections)
+    has_graph = any(s['type'] == 'graph' for s in parsed_sections)
+
     prefs = {
         "generate_audio": prompt_yes_no("Generate audio? (N to skip for testing)", default=True),
         "save_mp3": prompt_yes_no("Save MP3 audio file?", default=True),
-        "use_code_visualizer": prompt_yes_no("Generate code visualisation?", default=config.USE_CODE_VISUALIZER_DEFAULT),
-        "use_graph_visualizer": prompt_yes_no("Generate graph visualisation?", default=config.USE_GRAPH_VISUALIZER_DEFAULT),
+        "use_code_visualizer": has_code,
+        "use_graph_visualizer": has_graph,
+        "code_theme": config.CODE_VIS_DEFAULT_THEME,
+        "code_mode": config.CODE_VIS_DEFAULT_MODE,
+        "graph_theme": "heaven"
     }
-    
-    # Lower FPS for test mode
+
     if not prefs["generate_audio"]:
-        prefs["test_fps"] = 5  # Fast preview rendering
+        prefs["test_fps"] = 5
         print("ℹ️  Test mode: Using 5 FPS for faster rendering")
     else:
         prefs["test_fps"] = FPS
-    
-    # Only show code options if code visualizer is enabled
-    if prefs["use_code_visualizer"]:
-        prefs["code_theme"] = select_from_list(config.CODE_VIS_THEMES, "Select code visualiser theme")
-        prefs["code_mode"] = select_from_list(config.CODE_VIS_MODES, "Select code animation mode")
-    
-    # Only show graph options if graph visualizer is enabled
-    if prefs["use_graph_visualizer"]:
-        prefs["graph_theme"] = select_from_list(["heaven", "dark", "matrix"], "Select graph theme")
-    
+
+    # Only ask for theme overrides in manual mode
+    if not file_mode:
+        if has_code:
+            prefs["code_theme"] = select_from_list(
+                config.CODE_VIS_THEMES,
+                "Select code visualiser theme"
+            )
+
+        if has_graph:
+            prefs["graph_theme"] = select_from_list(
+                ["heaven", "dark", "matrix"],
+                "Select graph theme"
+            )
+
     return prefs
 
 
@@ -708,50 +724,65 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
 
 
 def main():
-    """Main application flow."""
-    
-    prefs = get_startup_preferences()
-    
-    print("\n" + "-"*60)
-    print("📝 ENTER YOUR CONTENT")
-    print("-"*60)
-    print("\nYou can embed visualizations in your text using markers:")
-    print("  [VisualiseCode] def hello():\\n    print('Hi') [/VisualiseCode]")
-    print("  [VisualiseGraph:bar] Python:85,JavaScript:72,Go:68 [/VisualiseGraph]")
-    print("  [VisualiseGraph:bar|heaven] Python:85,JS:72 [/VisualiseGraph]")
-    print("  [VisualiseGraph:line] Jan:10,Feb:20,Mar:15 [/VisualiseGraph]")
-    print("  [VisualiseGraph:line|dark] Data1:5,Data2:10 [/VisualiseGraph]")
-    print("\nGraph themes: heaven (light), dark (dark mode), matrix (green terminal)")
-    print()
-    
-    # Check for file argument
-    if len(sys.argv) > 1:
+    """Main application flow (intelligent mode)."""
+
+    # ----------------------
+    # Load Prompt First
+    # ----------------------
+    file_mode = len(sys.argv) > 1
+
+    if file_mode:
         with open(sys.argv[1], 'r', encoding='utf-8') as f:
             prompt = f.read().strip()
         print(f"✓ Loaded from {sys.argv[1]}")
     else:
+        print("\n" + "-"*60)
+        print("📝 ENTER YOUR CONTENT")
+        print("-"*60)
+        print("\nYou can embed visualizations using markers.")
+        print()
         prompt = input("Enter your text (with optional markers): ").strip()
 
     if not prompt:
         print("❌ Error: No text provided.")
         return 1
 
-    video_path = generate_main_video(prompt, save_mp3=prefs["save_mp3"], prefs=prefs)
-    
+    # ----------------------
+    # Parse Prompt Early
+    # ----------------------
+    parsed = parse_prompt_with_markers(prompt)
+    sections = parsed['sections']
+
+    print(f"\n🔍 Detected {len(sections)} sections")
+
+    # ----------------------
+    # Get Preferences AFTER parsing
+    # ----------------------
+    prefs = get_startup_preferences(sections, file_mode)
+
+    # ----------------------
+    # Generate Video
+    # ----------------------
+    video_path = generate_main_video(
+        prompt,
+        save_mp3=prefs["save_mp3"],
+        prefs=prefs
+    )
+
     if not video_path:
         return 1
-    
+
     print("\n" + "="*60)
     print("✅ GENERATION COMPLETE")
     print("="*60)
     print(f"\n📹 Video: {video_path}")
     print(f"📁 Output directory: {config.OUTPUT_DIR}")
-    
-    if prefs["save_mp3"]:
+
+    if prefs["save_mp3"] and prefs["generate_audio"]:
         print(f"🎵 Audio: {os.path.join(config.OUTPUT_DIR, 'output_audio.mp3')}")
-    
+
     print()
-    
+
     return 0
 
 
