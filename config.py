@@ -13,7 +13,7 @@ VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 720
 FPS = 15
 BACKGROUND_COLOR = (255, 255, 255)
-TEXT_COLOR = (0, 0, 0)               # RGB tuple
+TEXT_COLOR = (29, 29, 31)           # #1D1D1F (matches heaven theme text)
 
 # Text rendering
 FONT_SIZE = 50

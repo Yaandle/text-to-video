@@ -403,73 +403,9 @@ def create_text_clip_optimized(sections: list, duration: float, font: ImageFont.
     BOTTOM_MARGIN = 80
     LINE_SPACING = 6
 
-    # Background gradient/shadow
-    def draw_background(draw_obj):
-        """Draw subtle vertical gradient for floating effect."""
-        for y in range(VIDEO_HEIGHT):
-            ratio = y / VIDEO_HEIGHT
-            r = int(BACKGROUND_COLOR[0] * (0.95 + 0.05 * ratio))
-            g = int(BACKGROUND_COLOR[1] * (0.95 + 0.05 * ratio))
-            b = int(BACKGROUND_COLOR[2] * (0.95 + 0.05 * ratio))
-            draw_obj.line([(0, y), (VIDEO_WIDTH, y)], fill=(r, g, b))
-
-    def generate_text_frame(t):
-        """Generate a single text frame with typewriter cursor."""
-        img = Image.new('RGB', (VIDEO_WIDTH, VIDEO_HEIGHT), color=BACKGROUND_COLOR)
-        draw = ImageDraw.Draw(img)
-
-        draw_background(draw)
-
-        # Determine current section
-        current_section = None
-        for section in sections:
-            if section['start_time'] <= t < section['end_time']:
-                current_section = section
-                break
-        if current_section is None and sections:
-            current_section = sections[-1]
-
-        if current_section and current_section['type'] == 'text':
-            content = current_section['content']
-            section_duration = current_section['end_time'] - current_section['start_time']
-            progress = (t - current_section['start_time']) / section_duration if section_duration > 0 else 1.0
-            chars_to_display = int(len(content) * progress)
-            display_text = content[:chars_to_display]
-
-            lines = textwrap.wrap(display_text, width=TEXT_WRAP_WIDTH)
-            if len(lines) > MAX_DISPLAY_LINES:
-                lines = lines[-MAX_DISPLAY_LINES:]
-            final_text = "\n".join(lines)
-
-            bbox = draw.multiline_textbbox((0, 0), final_text, font=font, spacing=LINE_SPACING, align="left")
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            x = LEFT_MARGIN
-            y = TOP_MARGIN + (VIDEO_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN - text_height) / 2
-
-            # Draw text
-            draw.multiline_text((x, y), final_text, font=font, fill=TEXT_COLOR, spacing=LINE_SPACING, align="left")
-
-            # Draw typewriter cursor
-            if current_section['end_time'] - current_section['start_time'] > 0:
-                blink_phase = (t % CURSOR_BLINK_SPEED) / CURSOR_BLINK_SPEED
-                cursor_visible = blink_phase < 0.5
-                if cursor_visible:
-                    last_line = lines[-1] if lines else ""
-                    cursor_x = x + draw.textlength(last_line, font=font)
-                    line_height = font.getbbox("Ay")[3] - font.getbbox("Ay")[1]
-                    cursor_y = y + (len(lines) - 1) * (line_height + LINE_SPACING)
-                    draw.text((cursor_x, cursor_y), CURSOR_CHAR, font=font, fill=CURSOR_COLOR)
-
-        return np.array(img)
-
-    def make_frame(t):
-        cache_key = int(t / cache_interval)
-        if cache_key not in frame_cache:
-            frame_cache[cache_key] = generate_text_frame(t)
-        return frame_cache[cache_key]
-
-    return VideoClip(make_frame, duration=duration)
+    # Background 
+    img = Image.new('RGB', (VIDEO_WIDTH, VIDEO_HEIGHT), color=BACKGROUND_COLOR)
+    draw = ImageDraw.Draw(img)
 
 def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
     """Render all code clips (serial since Playwright isn't thread-safe)."""
@@ -670,14 +606,8 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     
     text_clip = create_text_clip_optimized(timed_sections, duration, font)
     
-    bg_clip = ColorClip(
-        size=(VIDEO_WIDTH, VIDEO_HEIGHT),
-        color=BACKGROUND_COLOR,
-        duration=duration
-    )
-    
     # Combine all clips
-    clips = [bg_clip, text_clip]
+    clips = [text_clip]
     for clip in code_clips_cache.values():
         clips.append(clip)
     for clip in graph_clips_cache.values():
