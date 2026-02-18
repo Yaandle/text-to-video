@@ -7,7 +7,7 @@
    GLOBAL RESET
 --------------------------------------------------------- */
 
-* {
+*, *::before, *::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -15,7 +15,7 @@
 
 body {
     min-height: 100vh;
-    font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', 'Courier New', monospace;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -29,72 +29,98 @@ body {
 --------------------------------------------------------- */
 
 :root {
-
     /* motion */
-    --spring-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
-    --soft-ease: cubic-bezier(0.22, 1, 0.36, 1);
-    --duration-fast: 400ms;
+    --spring-ease:   cubic-bezier(0.34, 1.56, 0.64, 1);
+    --soft-ease:     cubic-bezier(0.22, 1, 0.36, 1);
+    --duration-fast:   400ms;
     --duration-medium: 650ms;
-    --duration-slow: 1000ms;
+    --duration-slow:  1000ms;
 
     /* sizing */
     --terminal-radius: 14px;
-    --header-height: 56px;
-    --padding-y: 32px;
-    --padding-x: 20px;
-    --line-num-width: 56px;
+    --header-height:   56px;
+    --padding-y:       32px;
+    --padding-x:       20px;
+    --line-num-width:  56px;
 }
 
 /* ------------------ HEAVEN ------------------ */
 
 body[data-theme="heaven"] {
-    --bg: #FFFFFF;
+    --bg:       #FFFFFF;
     --terminal: #FFFFFF;
-    --header: #F5F5F7;
-    --border: #D1D1D6;
-    --text: #1D1D1F;
-    --keyword: #AD3DA4;
-    --comment: #8E8E93;
-    --string: #D12F1B;
-    --number: #272AD8;
+    --header:   #F5F5F7;
+    --border:   #D1D1D6;
+    --text:     #1D1D1F;
+    --subtext:  #6B7280;
+    --grid:     #F3F4F6;
+
+    /* code syntax */
+    --keyword:  #AD3DA4;
+    --comment:  #8E8E93;
+    --string:   #D12F1B;
+    --number:   #272AD8;
     --function: #3E8087;
     --line-num: #B0B0B5;
+
+    /* graph */
+    --graph:    #3B82F6;
+    --accent:   #F59E0B;
+    --area:     rgba(59, 130, 246, 0.08);
 }
 
 /* ------------------ DARK ------------------ */
 
 body[data-theme="dark"] {
-    --bg: #1E1E1E;
+    --bg:       #1E1E1E;
     --terminal: #252526;
-    --header: #2D2D30;
-    --border: #3E3E42;
-    --text: #D4D4D4;
-    --keyword: #569CD6;
-    --comment: #6A9955;
-    --string: #CE9178;
-    --number: #B5CEA8;
+    --header:   #2D2D30;
+    --border:   #3E3E42;
+    --text:     #D4D4D4;
+    --subtext:  #9CA3AF;
+    --grid:     #262626;
+
+    /* code syntax */
+    --keyword:  #569CD6;
+    --comment:  #6A9955;
+    --string:   #CE9178;
+    --number:   #B5CEA8;
     --function: #DCDCAA;
     --line-num: #858585;
+
+    /* graph */
+    --graph:    #60A5FA;
+    --accent:   #FBBF24;
+    --area:     rgba(96, 165, 250, 0.08);
 }
 
 /* ------------------ MATRIX ------------------ */
 
 body[data-theme="matrix"] {
-    --bg: #0D0208;
+    --bg:       #0D0208;
     --terminal: #001400;
-    --header: #002800;
-    --border: #00FF41;
-    --text: #00FF41;
-    --keyword: #39FF14;
-    --comment: #008F11;
-    --string: #00DD3A;
-    --number: #00FF66;
+    --header:   #002800;
+    --border:   #00FF41;
+    --text:     #00FF41;
+    --subtext:  #008F11;
+    --grid:     #001400;
+
+    /* code syntax */
+    --keyword:  #39FF14;
+    --comment:  #008F11;
+    --string:   #00DD3A;
+    --number:   #00FF66;
     --function: #00CC33;
     --line-num: #005020;
+
+    /* graph */
+    --graph:    #00FF41;
+    --accent:   #39FF14;
+    --area:     rgba(0, 255, 65, 0.06);
 }
 
 /* ---------------------------------------------------------
-   TERMINAL LAYOUT
+   SHARED TERMINAL CHROME
 --------------------------------------------------------- */
 
 body {
@@ -108,13 +134,13 @@ body {
     border: 1px solid var(--border);
     border-radius: var(--terminal-radius);
     overflow: hidden;
-    box-shadow: 0 25px 80px rgba(0,0,0,0.25);
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.25);
 
     /* spring entrance */
     opacity: 0;
     transform: translateY(14px) scale(0.985);
     transition:
-        opacity var(--duration-medium) var(--spring-ease),
+        opacity  var(--duration-medium) var(--spring-ease),
         transform var(--duration-medium) var(--spring-ease);
 }
 
@@ -124,7 +150,7 @@ body {
 }
 
 /* ---------------------------------------------------------
-   HEADER
+   HEADER (shared)
 --------------------------------------------------------- */
 
 .header {
@@ -137,6 +163,7 @@ body {
     gap: 12px;
 }
 
+/* Traffic-light dots — outline only, no fill (matches code_visualiser) */
 .dots {
     display: flex;
     gap: 8px;
@@ -146,8 +173,10 @@ body {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    border: 1.5px solid var(--line-num);
+    border: 1.5px solid var(--line-num, var(--subtext));
+    background: transparent;
     opacity: 0.6;
+    transition: opacity 0.3s;
 }
 
 .dot.active {
@@ -155,18 +184,20 @@ body {
 }
 
 @keyframes pulse {
-    0%,100% { opacity: 0.6; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.1); }
+    0%, 100% { opacity: 0.6; transform: scale(1);   }
+    50%       { opacity: 1;   transform: scale(1.1); }
 }
 
-.title {
-    color: var(--line-num);
+.title,
+.header-title {
+    color: var(--line-num, var(--subtext));
     font-size: 13px;
     margin-left: 8px;
+    letter-spacing: 0.04em;
 }
 
 /* ---------------------------------------------------------
-   CODE CONTAINER
+   CODE LAYOUT
 --------------------------------------------------------- */
 
 .container {
@@ -203,13 +234,13 @@ body {
 }
 
 /* ---------------------------------------------------------
-   SYNTAX COLORS
+   SYNTAX COLOURS
 --------------------------------------------------------- */
 
-.keyword { color: var(--keyword); font-weight: 600; }
-.comment { color: var(--comment); font-style: italic; }
-.string { color: var(--string); }
-.number { color: var(--number); }
+.keyword  { color: var(--keyword);  font-weight: 600; }
+.comment  { color: var(--comment);  font-style: italic; }
+.string   { color: var(--string);   }
+.number   { color: var(--number);   }
 .function { color: var(--function); }
 
 /* ---------------------------------------------------------
@@ -222,7 +253,7 @@ body {
     height: 1.1em;
     background: currentColor;
     margin-left: 2px;
-    animation: blink 1s steps(2,start) infinite;
+    animation: blink 1s steps(2, start) infinite;
     transform: translateY(2px);
 }
 
@@ -231,7 +262,7 @@ body {
 }
 
 /* ---------------------------------------------------------
-   STATIC SPRING FADE
+   STATIC SPRING FADE (code)
 --------------------------------------------------------- */
 
 .static-reveal {
@@ -248,12 +279,55 @@ body {
 }
 
 /* ---------------------------------------------------------
-   PER-WORD TEXT ANIMATION
+   SCROLLBAR
 --------------------------------------------------------- */
 
-.text-animate {
-    display: inline-block;
+.code-wrapper::-webkit-scrollbar { width: 8px; height: 8px; }
+.code-wrapper::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
 }
+
+/* ---------------------------------------------------------
+   GRAPH LAYOUT
+--------------------------------------------------------- */
+
+/* Graph terminal is narrower than code terminal */
+.terminal.graph-terminal {
+    max-width: 900px;
+}
+
+.chart-container {
+    padding: 36px 44px 44px;
+}
+
+.chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    text-align: center;
+    opacity: 0.85;
+}
+
+/*
+  Canvas must NOT be stretched by CSS.
+  Width/height are set precisely in JS to avoid blur / doubled axes.
+*/
+canvas {
+    display: block;
+    /* Disable browser sub-pixel smoothing that blurs canvas lines */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+}
+
+/* ---------------------------------------------------------
+   PER-WORD TEXT ANIMATION (utility)
+--------------------------------------------------------- */
+
+.text-animate { display: inline-block; }
 
 .word {
     display: inline-block;
@@ -269,18 +343,4 @@ body {
         filter: blur(0);
         transform: translateY(0);
     }
-}
-
-/* ---------------------------------------------------------
-   SCROLLBAR
---------------------------------------------------------- */
-
-.code-wrapper::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-.code-wrapper::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 4px;
 }

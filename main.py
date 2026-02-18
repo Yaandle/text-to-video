@@ -55,65 +55,96 @@ class ManagedClip:
 
 def parse_prompt_with_markers(prompt: str) -> dict:
     """Parse prompt for visualization markers and track their positions.
-    
+
     Markers:
-        [VisualiseCode]code here[/VisualiseCode] - for code visualization
-        [VisualiseGraph:type|theme]label1:value1,label2:value2[/VisualiseGraph] - for graph
-            where type is 'bar' or 'line' and theme is 'heaven', 'dark', or 'matrix' (optional)
-    
+        [VisualiseCode]code[/VisualiseCode]
+        [VisualiseCode:0]code[/VisualiseCode]        -> static
+        [VisualiseCode:1]code[/VisualiseCode]        -> typewriter
+        [VisualiseCode:typewriter]code[/VisualiseCode]
+        [VisualiseCode:static]code[/VisualiseCode]
+
+        [VisualiseGraph:type|theme]data[/VisualiseGraph]
+
     Returns:
         Dictionary with clean_text and sections list
     """
+
     sections = []
     current_pos = 0
-    
-    combined_pattern = r'(\[VisualiseCode\].*?\[/VisualiseCode\]|\[VisualiseGraph:[^\]]+\].*?\[/VisualiseGraph\])'
+
+    combined_pattern = (
+        r'(\[VisualiseCode(?::[^\]]+)?\].*?\[/VisualiseCode\]'
+        r'|\[VisualiseGraph:[^\]]+\].*?\[/VisualiseGraph\])'
+    )
+
     graph_pattern = r'\[VisualiseGraph:([^\]]+)\](.*?)\[/VisualiseGraph\]'
-    
+    code_pattern = r'\[VisualiseCode(?::([^\]]+))?\](.*?)\[/VisualiseCode\]'
+
     clean_text = ""
-    
+
     for match in re.finditer(combined_pattern, prompt, re.DOTALL):
         marker_start = match.start()
         marker_text = match.group(0)
-        
-        # Add text before this marker
+
+        # Add text before marker
         text_before = prompt[current_pos:marker_start]
         if text_before:
             sections.append({'type': 'text', 'content': text_before})
             clean_text += text_before
-        
-        # Parse and add the marker
-        if marker_text.startswith('[VisualiseCode]'):
-            code_content = re.search(r'\[VisualiseCode\](.*?)\[/VisualiseCode\]', marker_text, re.DOTALL)
-            if code_content:
-                sections.append({'type': 'code', 'content': code_content.group(1).strip()})
+
+        # ----------------------
+        # CODE
+        # ----------------------
+        if marker_text.startswith('[VisualiseCode'):
+            code_match = re.search(code_pattern, marker_text, re.DOTALL)
+            if code_match:
+                mode_spec = code_match.group(1)
+                code_content = code_match.group(2).strip()
+
+                resolved_mode = None
+                if mode_spec:
+                    mode_spec = mode_spec.strip().lower()
+                    if mode_spec in ("1", "typewriter"):
+                        resolved_mode = "typewriter"
+                    elif mode_spec in ("0", "static"):
+                        resolved_mode = "static"
+
+                sections.append({
+                    'type': 'code',
+                    'content': code_content,
+                    'mode': resolved_mode  # None = fallback to startup preference
+                })
+
+        # ----------------------
+        # GRAPH
+        # ----------------------
         elif marker_text.startswith('[VisualiseGraph:'):
             graph_match = re.search(graph_pattern, marker_text, re.DOTALL)
             if graph_match:
                 graph_spec = graph_match.group(1).lower()
                 graph_data = graph_match.group(2).strip()
-                
+
                 parts = graph_spec.split('|')
                 graph_type = parts[0].strip()
                 theme = parts[1].strip() if len(parts) > 1 else None
-                
+
                 sections.append({
                     'type': 'graph',
                     'graph_type': graph_type,
                     'theme': theme,
                     'content': graph_data
                 })
-        
+
         current_pos = match.end()
-    
+
     # Add remaining text
     remaining = prompt[current_pos:]
     if remaining:
         sections.append({'type': 'text', 'content': remaining})
         clean_text += remaining
-    
+
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-    
+
     return {
         'clean_text': clean_text,
         'sections': sections,
@@ -426,43 +457,57 @@ def create_text_clip_optimized(sections: list, duration: float, font: ImageFont.
 
 def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
     """Render all code clips (serial since Playwright isn't thread-safe)."""
+
     code_clips = {}
-    
+
     if not prefs.get('use_code_visualizer', True):
         return code_clips
-    
+
     if not any(s['type'] == 'code' for s in timed_sections):
         return code_clips
-    
+
     if not HAS_PLAYWRIGHT:
         print("\n❌ ERROR: Playwright is required for code visualization!")
         print("Install with: pip install playwright && playwright install chromium")
         return code_clips
-    
+
     print("\n🎨 Pre-rendering code visualizations...")
+
     for i, section in enumerate(timed_sections):
         if section['type'] == 'code':
             code_content = section['content']
             theme = prefs.get('code_theme', config.CODE_VIS_DEFAULT_THEME)
-            mode = prefs.get('code_mode', config.CODE_VIS_DEFAULT_MODE)
-            code_duration = config.CODE_VIS_DURATION  # 8 seconds for animation
-            
+
+            # 🔹 Prompt-level override
+            mode = section.get('mode') or prefs.get(
+                'code_mode',
+                config.CODE_VIS_DEFAULT_MODE
+            )
+
+            code_duration = config.CODE_VIS_DURATION
+
             try:
-                clip = create_code_video_clip(code_content, theme, mode, code_duration)
-                
+                clip = create_code_video_clip(
+                    code_content,
+                    theme,
+                    mode,
+                    code_duration
+                )
+
                 section_duration = section['end_time'] - section['start_time']
-                
+
                 clip = clip.resized((VIDEO_WIDTH, VIDEO_HEIGHT))
                 clip = clip.with_duration(min(section_duration, clip.duration))
                 clip = clip.with_start(section['start_time'])
-                
+
                 code_clips[i] = clip
-                print(f"✅ Rendered code clip for section {i+1} (duration: {section_duration:.2f}s)")
+                print(f"✅ Rendered code clip for section {i+1} (mode: {mode})")
+
             except Exception as e:
                 print(f"❌ Error rendering code clip: {e}")
                 import traceback
                 traceback.print_exc()
-    
+
     return code_clips
 
 

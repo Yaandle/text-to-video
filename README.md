@@ -85,6 +85,7 @@ All videos are generated frame-by-frame using MoviePy + PIL.
     * Line-by-line code reveal
     * Syntax-aware coloring
     * Carbon-style window layout
+    * Typewriter and/or static reveal
 * 📊 **Graph Visualizer** (`graph_visualiser.py`)
     * Animated bar charts
     * Animated line graphs
@@ -136,13 +137,48 @@ ELEVENLABS_API_KEY=sk-...
 ## Usage
 
 ### Text -> Video
+
+You can edit prompt.txt (or create your own file) and pass it to the program:
+
 ```bash
 python main.py prompt.txt
 ```
 
+
 **Marker syntax:**
+
+### Code Visualisation
+Basic usage (uses startup-selected animation mode):
+```bash
+[VisualiseCode]
+def hello():
+    print("Hi")
+[/VisualiseCode]
 ```
-[VisualiseCode]def hello():\n    print("Hi")[/VisualiseCode]
+
+Override animation mode per block:
+```bash
+[VisualiseCode:1]        → typewriter animation
+[VisualiseCode:0]        → static reveal
+[VisualiseCode:typewriter]
+[VisualiseCode:static]
+```
+
+### Graph Visualisation
+
+Format:
+```bash
+[VisualiseGraph:type|theme]label:value,label:value[/VisualiseGraph]
+```
+```bash 
 [VisualiseGraph:bar|dark]Python:85,JavaScript:72[/VisualiseGraph]
 [VisualiseGraph:line|matrix]Jan:10,Feb:20,Mar:15[/VisualiseGraph]
 ```
+***Graph Types***
+- bar
+- line
+
+### Themes
+- heaven (light)
+- dark
+- matrix
