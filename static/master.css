@@ -344,3 +344,186 @@ canvas {
         transform: translateY(0);
     }
 }
+
+
+
+/* ---------------------------------------------------------
+   MAIN TEXT ANIMATIONS
+--------------------------------------------------------- */
+
+.text-container {
+    max-width: 1080px;
+    margin: auto;
+    padding: 80px 60px;
+    font-family: 'Atkinson-Hyperlegible', Arial, sans-serif;
+    font-size: 50px;
+    line-height: 1.4;
+    color: var(--text);
+    white-space: pre-wrap;
+}
+
+.text-container .line {
+    opacity: 0;
+    transform: translateY(8px);
+    animation: lineReveal 0.65s var(--soft-ease) forwards;
+}
+
+@keyframes lineReveal {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Optional word-level stagger */
+.text-container .word {
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: wordReveal 0.65s var(--soft-ease) forwards;
+}
+
+.text-container .cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1.2em;
+    background: var(--text);
+    margin-left: 2px;
+    animation: blink 1s steps(2, start) infinite;
+}
+
+
+
+
+/* =========================================================
+   NARRATIVE TERMINAL SYSTEM
+   ========================================================= */
+
+/* Frame container (video-sized canvas) */
+.narrative-frame {
+    position: relative;
+    overflow: hidden;
+    padding: 72px 56px 72px 72px;
+    box-sizing: border-box;
+}
+
+/* Background grid + radial glow */
+.narrative-frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, var(--radial-rgba) 0%, transparent 68%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.narrative-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right,  var(--grid-rgba) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-rgba) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Ensure content is above overlays */
+.narrative-frame > * {
+    position: relative;
+    z-index: 10;
+}
+
+/* Boot logs */
+.boot-log {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    opacity: 0;
+    animation: lineReveal var(--duration-medium) var(--soft-ease) forwards;
+}
+
+.boot-tag {
+    color: var(--line-num);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.boot-msg {
+    font-size: 0.95rem;
+    letter-spacing: 0.05em;
+}
+
+/* Narrative layout */
+.narrative-container {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.narrative-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    line-height: 1.55;
+    opacity: 0;
+    animation: lineReveal var(--duration-medium) var(--soft-ease) forwards;
+}
+
+.narrative-line.bold-line {
+    font-weight: 700;
+    font-size: 1.45rem;
+}
+
+.narrative-line.light-line {
+    font-weight: 300;
+    font-size: 1.2rem;
+}
+
+.prefix {
+    opacity: 0.38;
+    font-size: 0.72rem;
+    margin-top: 5px;
+    font-weight: 700;
+    min-width: 30px;
+    flex-shrink: 0;
+    letter-spacing: 0.04em;
+}
+
+.line-text {
+    flex: 1;
+    letter-spacing: 0.04em;
+}
+
+/* Footer */
+.narrative-footer {
+    margin-top: 64px;
+    font-size: 0.9rem;
+    font-style: italic;
+    letter-spacing: 0.1em;
+    opacity: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: lineReveal var(--duration-medium) var(--soft-ease) forwards;
+}
+
+.narrative-footer .slash {
+    opacity: 0.4;
+}
+
+/* Matrix glow override */
+body[data-theme="matrix"] .boot-msg,
+body[data-theme="matrix"] .line-text {
+    text-shadow: 0 0 6px rgba(0,255,65,0.35);
+}
+
+body[data-theme="matrix"] .bold-line .line-text {
+    text-shadow:
+        0 0 10px rgba(57,255,20,0.55),
+        0 0 2px rgba(57,255,20,0.85);
+}

@@ -10,13 +10,14 @@ load_dotenv()
 
 # Video Settings
 VIDEO_WIDTH = 1080
-VIDEO_HEIGHT = 720
+VIDEO_HEIGHT = 1920
 FPS = 15
-BACKGROUND_COLOR = (255, 255, 255)
-TEXT_COLOR = (29, 29, 31)           # #1D1D1F (matches heaven theme text)
+BACKGROUND_COLOR = (255, 255, 255)   # white background
+TEXT_COLOR = (29, 29, 31)            # dark gray text
 
 # Text rendering
-FONT_SIZE = 50
+FONT_SIZE = int(VIDEO_HEIGHT * 0.065)
+
 TEXT_WRAP_WIDTH = 40
 MAX_DISPLAY_LINES = 2
 
@@ -87,6 +88,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 SAVE_MP3_PROMPT = True  # Ask user about saving MP3 at startup
 USE_CODE_VISUALIZER_DEFAULT = True
 USE_GRAPH_VISUALIZER_DEFAULT = False
+NARRATIVE_THEME = "heaven"
 
 # =====================
 # Code Visualizer Settings
