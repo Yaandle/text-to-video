@@ -66,7 +66,7 @@ NARRATIVE_THEME = "heaven"
 # - typewriter : characters type in left-to-right (like code clips), glyph first
 # - wordblurin : words spring+blur in with stagger (smoothed from original)
 # - linescan   : line slides in from left with a light sweep highlight
-NARRATIVE_STYLE = "typewriter"
+NARRATIVE_STYLE = "wordblurin"
 
 # ── Code Visualizer ───────────────────────────────────────────────────────────
 CODE_VIS_DURATION      = 8.0

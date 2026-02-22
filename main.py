@@ -462,12 +462,13 @@ def create_text_clip_optimized(
     css_abs = os.path.abspath(os.path.join(_SCRIPT_DIR, "static", "master.css"))
     css_url = f"file:///{css_abs.replace(os.sep, '/')}"
 
-    def _render_html(lines_so_far: list) -> str:
+    def _render_html(lines_so_far: list, active_idx: int) -> str:
         html = template
         # Fix CSS path for file:// protocol
         html = html.replace('href="master.css"', f'href="{css_url}"')
         html = html.replace("THEME_PLACEHOLDER",       theme)
         html = html.replace("NARRATIVE_JSON",          json.dumps(lines_so_far))
+        html = html.replace("ACTIVE_LINE_IDX",         str(active_idx))
         html = html.replace("SHOW_BOOT_PLACEHOLDER",   "false")
         html = html.replace("FOOTER_TEXT_PLACEHOLDER", '""')
         html = html.replace("LINE_DELAY_PLACEHOLDER",  "0")
@@ -494,7 +495,7 @@ def create_text_clip_optimized(
 
         for line_idx in range(total_lines):
             lines_so_far = all_lines[: line_idx + 1]
-            html_str     = _render_html(lines_so_far)
+            html_str     = _render_html(lines_so_far, line_idx)
             html_tmp     = os.path.join(
                 tempfile.gettempdir(), f"narrative_{line_idx}.html"
             )
