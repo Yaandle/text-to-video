@@ -12,23 +12,20 @@ load_dotenv()
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
 FPS = 15
-BACKGROUND_COLOR = (255, 255, 255)   # white background
-TEXT_COLOR = (29, 29, 31)            # dark gray text
+BACKGROUND_COLOR = (255, 255, 255)
+TEXT_COLOR = (29, 29, 31)
 
 # Text rendering
 FONT_SIZE = int(VIDEO_HEIGHT * 0.065)
-
 TEXT_WRAP_WIDTH = 40
 MAX_DISPLAY_LINES = 2
-
 
 # ElevenLabs Settings
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 if not ELEVENLABS_API_KEY:
     raise RuntimeError(
         "ELEVENLABS_API_KEY not set in environment. "
-        "Please set it in .env file or as an environment variable. "
-        "NEVER hard-code secrets in source code."
+        "Please set it in .env file or as an environment variable."
     )
 
 VOICE_ID = "IKne3meq5aSn9XLyUdCD"
@@ -36,15 +33,6 @@ MODEL_ID = "eleven_multilingual_v2"
 
 # Font Paths (Platform-aware)
 def _get_font_path(font_name: str, fallback: str = "Arial.ttf") -> str:
-    """Get platform-specific font path with fallback.
-    
-    Args:
-        font_name: Font filename (e.g., 'consola.ttf', 'Arial.ttf')
-        fallback: Fallback font name if primary not found
-    
-    Returns:
-        Full path to font file
-    """
     if sys.platform == "win32":
         font_path = os.path.join("C:\\Windows\\Fonts", font_name)
         if os.path.exists(font_path):
@@ -52,60 +40,45 @@ def _get_font_path(font_name: str, fallback: str = "Arial.ttf") -> str:
         fallback_path = os.path.join("C:\\Windows\\Fonts", fallback)
         if os.path.exists(fallback_path):
             return fallback_path
-
-        #  else:  # Linux
-        #    font_dirs = [
-        #        os.path.expanduser("~/.fonts"),
-        #        "/usr/share/fonts",
-        #        "/usr/local/share/fonts",
-        #    ]
-        #    for font_dir in font_dirs:
-        #        font_path = os.path.join(font_dir, font_name)
-        #        if os.path.exists(font_path):
-        #            return font_path
-    
-    # Fallback: return default name and let PIL handle it
     warnings.warn(
-        f"Font '{font_name}' not found. Falling back to '{fallback}'. "
-        "Font rendering may use default system font.",
+        f"Font '{font_name}' not found. Falling back to '{fallback}'.",
         RuntimeWarning
     )
     return fallback
 
-# Font configuration
-FONT_PATH_ARIAL = _get_font_path("Arial.ttf")
-FONT_PATH_CONSOLAS = _get_font_path("consola.ttf", fallback="Arial.ttf")
-FONT_PATH_ATKINSON = _get_font_path("Atkinson-Hyperlegible-Regular.ttf", fallback="Arial.ttf")
+FONT_PATH_ARIAL     = _get_font_path("Arial.ttf")
+FONT_PATH_CONSOLAS  = _get_font_path("consola.ttf", fallback="Arial.ttf")
+FONT_PATH_ATKINSON  = _get_font_path("Atkinson-Hyperlegible-Regular.ttf", fallback="Arial.ttf")
 
-
-# Output Paths
+# Output
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# =====================
-# Video Generator Settings
-# =====================
-SAVE_MP3_PROMPT = True  # Ask user about saving MP3 at startup
-USE_CODE_VISUALIZER_DEFAULT = True
+# ── Video Generator ────────────────────────────────────────────────────────────
+SAVE_MP3_PROMPT              = True
+USE_CODE_VISUALIZER_DEFAULT  = True
 USE_GRAPH_VISUALIZER_DEFAULT = False
+
+# ── Narrative ─────────────────────────────────────────────────────────────────
 NARRATIVE_THEME = "heaven"
+# Animation style for narrative text clip.
+# Options: "typewriter" | "wordblurin" | "linescan"
+# - typewriter : characters type in left-to-right (like code clips), glyph first
+# - wordblurin : words spring+blur in with stagger (smoothed from original)
+# - linescan   : line slides in from left with a light sweep highlight
+NARRATIVE_STYLE = "typewriter"
 
-# =====================
-# Code Visualizer Settings
-# =====================
-USE_CODE_VISUALIZER_DEFAULT = True
-CODE_VIS_DURATION = 8.0  
-CODE_VIS_FONT_SIZE = 18
-CODE_VIS_LINE_HEIGHT = 26
+# ── Code Visualizer ───────────────────────────────────────────────────────────
+CODE_VIS_DURATION      = 8.0
+CODE_VIS_FONT_SIZE     = 18
+CODE_VIS_LINE_HEIGHT   = 26
 CODE_VIS_DEFAULT_THEME = "heaven"
-CODE_VIS_DEFAULT_MODE = "typewriter"
-CODE_VIS_THEMES = ["heaven", "dark", "matrix"]
-CODE_VIS_MODES = ["typewriter", "static"]
+CODE_VIS_DEFAULT_MODE  = "typewriter"
+CODE_VIS_THEMES        = ["heaven", "dark", "matrix"]
+CODE_VIS_MODES         = ["typewriter", "static"]
 
-# =====================
-# Graph Visualizer Settings
-# =====================
+# ── Graph Visualizer ──────────────────────────────────────────────────────────
 USE_GRAPH_VISUALIZER_DEFAULT = True
-GRAPH_VIS_PADDING = 80
-GRAPH_VIS_FONT_SIZE = 24
-GRAPH_VIS_TITLE_FONT_SIZE = 48
+GRAPH_VIS_PADDING            = 80
+GRAPH_VIS_FONT_SIZE          = 24
+GRAPH_VIS_TITLE_FONT_SIZE    = 48
