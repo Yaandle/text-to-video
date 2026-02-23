@@ -17,7 +17,7 @@ TEXT_COLOR = (29, 29, 31)
 
 # Text rendering
 FONT_SIZE = int(VIDEO_HEIGHT * 0.065)
-TEXT_WRAP_WIDTH = 40
+TEXT_WRAP_WIDTH = 34
 MAX_DISPLAY_LINES = 2
 
 # ElevenLabs Settings
@@ -60,19 +60,19 @@ USE_CODE_VISUALIZER_DEFAULT  = True
 USE_GRAPH_VISUALIZER_DEFAULT = False
 
 # ── Narrative ─────────────────────────────────────────────────────────────────
-NARRATIVE_THEME = "heaven"
+NARRATIVE_THEME = "dark"
 # Animation style for narrative text clip.
 # Options: "typewriter" | "wordblurin" | "linescan"
 # - typewriter : characters type in left-to-right (like code clips), glyph first
 # - wordblurin : words spring+blur in with stagger (smoothed from original)
 # - linescan   : line slides in from left with a light sweep highlight
-NARRATIVE_STYLE = "wordblurin"
+NARRATIVE_STYLE = "linescan"
 
 # ── Code Visualizer ───────────────────────────────────────────────────────────
 CODE_VIS_DURATION      = 8.0
 CODE_VIS_FONT_SIZE     = 18
 CODE_VIS_LINE_HEIGHT   = 26
-CODE_VIS_DEFAULT_THEME = "heaven"
+CODE_VIS_DEFAULT_THEME = "dark"
 CODE_VIS_DEFAULT_MODE  = "typewriter"
 CODE_VIS_THEMES        = ["heaven", "dark", "matrix"]
 CODE_VIS_MODES         = ["typewriter", "static"]

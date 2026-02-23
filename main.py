@@ -39,30 +39,26 @@ MAX_DISPLAY_LINES = config.MAX_DISPLAY_LINES
 _SCRIPT_DIR             = os.path.dirname(os.path.abspath(__file__))
 NARRATIVE_TEMPLATE_PATH = os.path.join(_SCRIPT_DIR, "static", "narrative_visualiser.html")
 
-# ── Animation timing constants (must match narrative_visualiser.html) ──────────
-#
-# Typewriter timing: glyph types in, then text types in per-char
-_TW_GLYPH_MS   = 220    # ms to type in the glyph prefix
-_TW_H1_MS      = 1400   # text typewriter duration for h1
-_TW_H2_MS      = 900    # text typewriter duration for h2
-_TW_BODY_MS    = 600    # text typewriter duration for body
+# ── Animation timing constants 
+_TW_GLYPH_MS   = 0      # glyph appears inline during typewriter; no separate phase
+_TW_H1_MS      = 1200
+_TW_H2_MS      = 820
+_TW_BODY_MS    = 580
 
-# Word blur-in timing
-_WB_WORD_STAGGER_MS = 55
-_WB_LINE_BASE_MS    = 80
-_WB_H1_ANIM_MS      = 820
-_WB_H2_ANIM_MS      = 770
-_WB_BODY_ANIM_MS    = 680
-_WB_GLYPH_MS        = 180   # glyph types in before words
+_WB_WORD_STAGGER_MS = 48
+_WB_LINE_BASE_MS    = 60
+_WB_H1_ANIM_MS      = 780
+_WB_H2_ANIM_MS      = 660
+_WB_BODY_ANIM_MS    = 540
+_WB_GLYPH_MS        = 0    # glyph fades in concurrently; no added phase time
 
-# Line scan timing
-_LS_GLYPH_MS    = 160
-_LS_H1_MS       = 750
-_LS_H2_MS       = 580
-_LS_BODY_MS     = 440
+_LS_GLYPH_MS    = 0        # same — concurrent
+_LS_H1_MS       = 620
+_LS_H2_MS       = 480
+_LS_BODY_MS     = 360
 
-_BURST_FRAMES   = 8     # screenshots captured per line reveal
-_BURST_BUFFER   = 150   # ms safety buffer after animation
+_BURST_FRAMES   = 8
+_BURST_BUFFER   = 140
 
 ANIM_STYLES = ["typewriter", "wordblurin", "linescan"]
 
@@ -183,40 +179,41 @@ def _text_sections_to_narrative_lines(text_sections: list) -> list:
         for para in paragraphs:
             wrapped = textwrap.wrap(para, width=wrap_w) or [para]
             for wline in wrapped:
-                colour    = _ACCENT_SEQUENCE[global_i % len(_ACCENT_SEQUENCE)]
                 bold      = len(wline) < 28 and global_i % 5 == 0
                 ltype     = _assign_line_type(wline, global_i)
                 hierarchy = _hierarchy_class(wline, bold)
                 lines.append({
                     "text":      wline,
-                    "color":     colour,
                     "type":      ltype,
                     "bold":      bool(bold),
                     "hierarchy": hierarchy,
+                    # color field dropped — theme CSS handles all colouring
                 })
                 global_i += 1
     return lines
 
 
-# ── Per-style animation duration calculator ────────────────────────────────────
+
 
 def _line_animation_ms(text: str, bold: bool, anim_style: str) -> int:
-    """Total ms for one line's full animation (glyph + text) for the given style."""
+    """Total ms for one line's full animation for the given style.
+    Glyph now animates concurrently so adds 0 to the total.
+    """
     hclass = _hierarchy_class(text, bold)
     wc     = len(text.strip().split())
 
     if anim_style == "typewriter":
         text_ms = _TW_H1_MS if hclass == "h1" else _TW_H2_MS if hclass == "h2" else _TW_BODY_MS
-        return _TW_GLYPH_MS + text_ms + _BURST_BUFFER
+        return text_ms + _BURST_BUFFER
 
     elif anim_style == "linescan":
         scan_ms = _LS_H1_MS if hclass == "h1" else _LS_H2_MS if hclass == "h2" else _LS_BODY_MS
-        return _LS_GLYPH_MS + scan_ms + _BURST_BUFFER
+        return scan_ms + 50 + _BURST_BUFFER
 
     else:  # wordblurin
-        anim_ms = _WB_H1_ANIM_MS if hclass == "h1" else _WB_H2_ANIM_MS if hclass == "h2" else _WB_BODY_ANIM_MS
+        anim_ms    = _WB_H1_ANIM_MS if hclass == "h1" else _WB_H2_ANIM_MS if hclass == "h2" else _WB_BODY_ANIM_MS
         last_delay = _WB_LINE_BASE_MS + max(0, wc - 1) * _WB_WORD_STAGGER_MS
-        return _WB_GLYPH_MS + last_delay + anim_ms + _BURST_BUFFER
+        return last_delay + anim_ms + _BURST_BUFFER
 
 
 def _burst_timestamps_ms(total_ms: int) -> list[int]:
@@ -230,8 +227,6 @@ def _burst_timestamps_ms(total_ms: int) -> list[int]:
         pts.append(int(t * total_ms))
     return pts
 
-
-# ── Prompt parsing ─────────────────────────────────────────────────────────────
 
 def parse_prompt_with_markers(prompt: str) -> dict:
     sections    = []
@@ -294,8 +289,6 @@ def parse_graph_data(content: str) -> dict:
     return data
 
 
-# ── Section timing ─────────────────────────────────────────────────────────────
-
 def calculate_section_timings(clean_text, sections, total_duration, prefs):
     filtered = [
         s for s in sections
@@ -329,8 +322,6 @@ def calculate_section_timings(clean_text, sections, total_duration, prefs):
         current += dur
     return timed
 
-
-# ── UI helpers ─────────────────────────────────────────────────────────────────
 
 def display_header():
     print("\n" + "="*60)
@@ -400,8 +391,6 @@ def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
     return prefs
 
 
-# ── Audio helpers ──────────────────────────────────────────────────────────────
-
 def create_silent_audio(duration: float) -> AudioFileClip:
     import wave
     tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
@@ -419,7 +408,7 @@ def create_silent_audio(duration: float) -> AudioFileClip:
     return AudioFileClip(tmp.name)
 
 
-# ── Narrative text → HTML clip (Playwright, multi-frame burst) ─────────────────
+
 
 def create_text_clip_optimized(
     sections: list,
@@ -464,7 +453,6 @@ def create_text_clip_optimized(
 
     def _render_html(lines_so_far: list, active_idx: int) -> str:
         html = template
-        # Fix CSS path for file:// protocol
         html = html.replace('href="master.css"', f'href="{css_url}"')
         html = html.replace("THEME_PLACEHOLDER",       theme)
         html = html.replace("NARRATIVE_JSON",          json.dumps(lines_so_far))
