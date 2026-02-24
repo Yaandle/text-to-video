@@ -1,11 +1,10 @@
+import io
 import os
 import re
 import sys
 import json
-import bisect
 import textwrap
 import tempfile
-import math
 
 import numpy as np
 from PIL import Image
@@ -16,7 +15,7 @@ from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 
 from elevenlabs.client import ElevenLabs
 import config
-from code_visualiser import TerminalPreviewGenerator, create_code_video_clip
+from code_visualiser import create_code_video_clip
 from graph_visualiser import create_bar_chart_clip, create_line_graph_clip
 
 try:
@@ -25,213 +24,62 @@ try:
 except ImportError:
     HAS_PLAYWRIGHT = False
 
-# ── Configuration ──────────────────────────────────────────────────────────────
-VIDEO_WIDTH       = config.VIDEO_WIDTH
-VIDEO_HEIGHT      = config.VIDEO_HEIGHT
-BACKGROUND_COLOR  = config.BACKGROUND_COLOR
-FPS               = config.FPS
-TEXT_COLOR        = config.TEXT_COLOR
-FONT_SIZE         = config.FONT_SIZE
-FONT_PATH         = config.FONT_PATH_ATKINSON
-TEXT_WRAP_WIDTH   = config.TEXT_WRAP_WIDTH
-MAX_DISPLAY_LINES = config.MAX_DISPLAY_LINES
-
 _SCRIPT_DIR             = os.path.dirname(os.path.abspath(__file__))
 NARRATIVE_TEMPLATE_PATH = os.path.join(_SCRIPT_DIR, "static", "narrative_visualiser.html")
 
-# ── Animation timing constants 
-_TW_GLYPH_MS   = 0      # glyph appears inline during typewriter; no separate phase
-_TW_H1_MS      = 1200
-_TW_H2_MS      = 820
-_TW_BODY_MS    = 580
+# ── Animation timing constants ─────────────────────────────────────────────────
+_TW_GLYPH_MS        = 220
+_TW_H1_MS           = 1400
+_TW_H2_MS           = 900
+_TW_BODY_MS         = 600
+_WB_WORD_STAGGER_MS = 55
+_WB_LINE_BASE_MS    = 80
+_WB_H1_ANIM_MS      = 520
+_WB_H2_ANIM_MS      = 440
+_WB_BODY_ANIM_MS    = 360
+_WB_GLYPH_MS        = 180
+_LS_GLYPH_MS        = 160
+_LS_H1_MS           = 750
+_LS_H2_MS           = 580
+_LS_BODY_MS         = 440
+_CODE_CLIP_LEAD_IN_S = 1.5
 
-_WB_WORD_STAGGER_MS = 48
-_WB_LINE_BASE_MS    = 60
-_WB_H1_ANIM_MS      = 780
-_WB_H2_ANIM_MS      = 660
-_WB_BODY_ANIM_MS    = 540
-_WB_GLYPH_MS        = 0    # glyph fades in concurrently; no added phase time
-
-_LS_GLYPH_MS    = 0        # same — concurrent
-_LS_H1_MS       = 620
-_LS_H2_MS       = 480
-_LS_BODY_MS     = 360
-
-_BURST_FRAMES   = 8
-_BURST_BUFFER   = 140
+# ms per line for deterministic timeline (HTML renderAtTime uses this too)
+LINE_DURATION_MS = 1200
 
 ANIM_STYLES = ["typewriter", "wordblurin", "linescan"]
-
-# ── Glyph + semantic type mapping ─────────────────────────────────────────────
-GLYPH_PREFIXES = {
-    "process":"→","function":"ƒ","invoke":"⟼","return":"↩","flow":"⇒",
-    "chain":"⋯","depth":"⋮","stack":"⟨⟩","thread":"⤷","call":"→",
-    "recursion":"∞","reflection":"⟲","meta":"◊","self":"◉","witness":"◎",
-    "evolution":"Δ","emerge":"⇡","loop":"⊚",
-    "negation":"¬","void":"∅","therefore":"∴","structure":"{}","break":"⟂",
-    "success":"✓","singular":"✦","threshold":"⟁","operator":"⊕","query":"?",
-    "memory":"mem","exception":"!",
-    "past":"←","future":"⇢","now":"●","change":"⇄",
-    "lambda":"λ","xor":"⊕","tensor":"⊗","sum":"∑","product":"∏",
-    "integral":"∫","gradient":"∇","approx":"≈","identity":"≡","similar":"⌁",
-    "entail":"⊢","models":"⊨","element":"∈","subset":"⊂","union":"∪",
-    "intersect":"∩","command":"⌘","hash":"⌗","transform":"⌬","id":"#",
-    "angle":"𝜃","velocity":"𝜔","accel":"𝛼","torque":"τ","control":"⟳",
-    "boundary":"⎔","layer":"⧉","target":"⌖","stable":"⎊","delay":"⧖",
-    "energy":"E","flux":"Φ","resist":"Ω","variance":"σ","density":"ρ",
-    "wave":"ψ","planck":"ℏ","discharge":"⚡",
-    "source":"☉","cycle":"☽","balance":"⚖","portal":"⟡","eye":"𓂀",
-    "duality":"☯","star":"✶","oppose":"☍",
-    "wait":"⧗","timeout":"⧖","parallel":"⧑","sync":"⧓","aggregate":"⊞",
-    "subtract":"⊟","block":"⊠","inactive":"◌","cancel":"⊘",
-    "comment":"//","constant":"const","variable":"var","keyword":"kw",
-    "class":"◻","type":"T","string":'"',"interface":"⌘","method":"m",
-    "property":"prop","analogy":"~","logic":"∴","continue":"…",
-}
-
-_KEYWORD_TYPE_MAP = [
-    (["run","execute","call","trigger","start","launch"],          "invoke"),
-    (["return","output","result","yield","emit","produce"],        "return"),
-    (["flow","pipeline","stream","pipe","chain","sequence"],       "flow"),
-    (["depth","layer","level","nested","deep","stack"],            "depth"),
-    (["thread","async","parallel","concurrent","worker"],          "thread"),
-    (["learn","adapt","evolve","improve","grow","train"],          "evolution"),
-    (["loop","cycle","repeat","iterate","again","recurse"],        "recursion"),
-    (["self","itself","own","internal","intrinsic"],               "self"),
-    (["reflect","observe","monitor","watch","inspect"],            "reflection"),
-    (["emerge","arise","surface","appear","birth"],                "emerge"),
-    (["not","never","no","without","absence","lack"],              "negation"),
-    (["if","when","condition","whether","unless","decide"],        "query"),
-    (["break","halt","stop","end","terminate","exit"],             "break"),
-    (["success","done","complete","achieve","accomplish","win"],   "success"),
-    (["structure","pattern","framework","system","architecture"],  "structure"),
-    (["memory","store","cache","remember","retain","persist"],     "memory"),
-    (["before","past","history","prior","previous","old"],         "past"),
-    (["future","next","ahead","coming","tomorrow","soon"],         "future"),
-    (["now","current","present","today","immediate","live"],       "now"),
-    (["change","shift","transform","transition","update","alter"], "change"),
-    (["data","dataset","record","row","table","database"],         "models"),
-    (["model","train","predict","infer","classify","detect"],      "models"),
-    (["hash","key","index","id","identifier","lookup"],            "hash"),
-    (["merge","join","combine","union","aggregate","group"],       "union"),
-    (["sum","total","count","add","accumulate","tally"],           "sum"),
-    (["gradient","descent","loss","optimize","minimize","backprop"],"gradient"),
-    (["tensor","matrix","vector","array","dimension","shape"],     "tensor"),
-    (["integral","area","continuous","converge","limit"],          "integral"),
-    (["power","energy","strength","force","capacity","resource"],  "energy"),
-    (["wave","signal","frequency","pulse","oscillate","resonate"], "wave"),
-    (["balance","stable","equilibrium","steady","constant","maintain"],"balance"),
-    (["source","origin","root","begin","genesis","initial"],       "source"),
-    (["portal","gateway","bridge","connect","link","path"],        "portal"),
-    (["star","highlight","notable","key","important","critical"],  "star"),
-    (["dual","both","two","pair","either","or"],                   "duality"),
-    (["fast","speed","quick","rapid","instant","accelerate"],      "invoke"),
-    (["build","create","make","construct","generate","produce"],   "structure"),
-    (["think","idea","concept","vision","imagine","insight"],      "meta"),
-    (["question","ask","why","how","what"],                        "query"),
-    (["time","moment","second","minute","hour","day"],             "now"),
-]
-
-_POSITIONAL_TYPES = [
-    "flow","depth","recursion","structure","memory","evolution","now",
-    "invoke","return","emerge","gradient","source","change","balance",
-    "wave","negation","success","query","portal","star","thread",
-    "reflection","union","sum","identity","threshold","singular",
-    "void","therefore","loop",
-]
-
-_ACCENT_SEQUENCE = [
-    "c-blue-300","c-teal-300","c-purple-300","c-emerald-300",
-    "c-yellow-300","c-amber-300","c-rose-300","c-fuchsia-300",
-    "c-indigo-300","c-lime-300","c-cyan-400","c-violet-400",
-    "c-pink-300","c-cyan-300","c-green-400","c-orange-300",
-    "c-fuchsia-400","c-sky-400","c-teal-400","c-amber-200",
-]
-
-_PORTRAIT_WRAP_WIDTH = 32
 
 
 # ── Semantic helpers ───────────────────────────────────────────────────────────
 
-def _assign_line_type(text: str, position: int) -> str:
-    lower = text.lower()
-    for keywords, ltype in _KEYWORD_TYPE_MAP:
-        if any(kw in lower for kw in keywords):
-            return ltype
-    return _POSITIONAL_TYPES[position % len(_POSITIONAL_TYPES)]
-
-
 def _hierarchy_class(text: str, bold: bool) -> str:
     wc = len(text.strip().split())
-    if bold and wc <= 5:  return "h1"
-    if bold or  wc <= 4:  return "h2"
+    if bold and wc <= 5: return "h1"
+    if bold or  wc <= 4: return "h2"
     return "body"
 
 
 def _text_sections_to_narrative_lines(text_sections: list) -> list:
-    lines    = []
-    global_i = 0
-    wrap_w   = _PORTRAIT_WRAP_WIDTH if VIDEO_WIDTH < VIDEO_HEIGHT else TEXT_WRAP_WIDTH
+    lines, global_i = [], 0
+    wrap_w = 32 if config.VIDEO_WIDTH < config.VIDEO_HEIGHT else config.TEXT_WRAP_WIDTH
 
     for sec in text_sections:
-        raw        = sec['content'].strip()
-        paragraphs = [p.strip() for p in raw.splitlines() if p.strip()]
-        for para in paragraphs:
-            wrapped = textwrap.wrap(para, width=wrap_w) or [para]
-            for wline in wrapped:
-                bold      = len(wline) < 28 and global_i % 5 == 0
-                ltype     = _assign_line_type(wline, global_i)
-                hierarchy = _hierarchy_class(wline, bold)
+        for para in [p.strip() for p in sec['content'].strip().splitlines() if p.strip()]:
+            for wline in textwrap.wrap(para, width=wrap_w) or [para]:
+                bold = len(wline) < 28 and global_i % 5 == 0
                 lines.append({
                     "text":      wline,
-                    "type":      ltype,
                     "bold":      bool(bold),
-                    "hierarchy": hierarchy,
-                    # color field dropped — theme CSS handles all colouring
+                    "hierarchy": _hierarchy_class(wline, bold),
                 })
                 global_i += 1
     return lines
 
 
-
-
-def _line_animation_ms(text: str, bold: bool, anim_style: str) -> int:
-    """Total ms for one line's full animation for the given style.
-    Glyph now animates concurrently so adds 0 to the total.
-    """
-    hclass = _hierarchy_class(text, bold)
-    wc     = len(text.strip().split())
-
-    if anim_style == "typewriter":
-        text_ms = _TW_H1_MS if hclass == "h1" else _TW_H2_MS if hclass == "h2" else _TW_BODY_MS
-        return text_ms + _BURST_BUFFER
-
-    elif anim_style == "linescan":
-        scan_ms = _LS_H1_MS if hclass == "h1" else _LS_H2_MS if hclass == "h2" else _LS_BODY_MS
-        return scan_ms + 50 + _BURST_BUFFER
-
-    else:  # wordblurin
-        anim_ms    = _WB_H1_ANIM_MS if hclass == "h1" else _WB_H2_ANIM_MS if hclass == "h2" else _WB_BODY_ANIM_MS
-        last_delay = _WB_LINE_BASE_MS + max(0, wc - 1) * _WB_WORD_STAGGER_MS
-        return last_delay + anim_ms + _BURST_BUFFER
-
-
-def _burst_timestamps_ms(total_ms: int) -> list[int]:
-    """N burst-capture timestamps within [0, total_ms], non-linearly distributed
-    (denser at start where motion is highest)."""
-    if _BURST_FRAMES <= 1:
-        return [total_ms]
-    pts = []
-    for i in range(_BURST_FRAMES):
-        t = (i / (_BURST_FRAMES - 1)) ** 0.55   # slight ease — denser early
-        pts.append(int(t * total_ms))
-    return pts
-
+# ── Prompt parsing ─────────────────────────────────────────────────────────────
 
 def parse_prompt_with_markers(prompt: str) -> dict:
-    sections    = []
-    current_pos = 0
-    clean_text  = ""
+    sections, current_pos, clean_text = [], 0, ""
 
     combined_pattern = (
         r'(\[VisualiseCode(?::[^\]]+)?\].*?\[/VisualiseCode\]'
@@ -241,22 +89,21 @@ def parse_prompt_with_markers(prompt: str) -> dict:
     code_pattern  = r'\[VisualiseCode(?::([^\]]+))?\](.*?)\[/VisualiseCode\]'
 
     for match in re.finditer(combined_pattern, prompt, re.DOTALL):
-        marker_start = match.start()
-        marker_text  = match.group(0)
-        text_before  = prompt[current_pos:marker_start]
+        text_before = prompt[current_pos:match.start()]
         if text_before:
             sections.append({'type': 'text', 'content': text_before})
             clean_text += text_before
 
+        marker_text = match.group(0)
         if marker_text.startswith('[VisualiseCode'):
             m = re.search(code_pattern, marker_text, re.DOTALL)
             if m:
                 mode_spec     = (m.group(1) or "").strip().lower()
                 resolved_mode = (
-                    "typewriter" if mode_spec in ("1","typewriter") else
-                    "static"     if mode_spec in ("0","static")     else None
+                    "typewriter" if mode_spec in ("1", "typewriter") else
+                    "static"     if mode_spec in ("0", "static")     else None
                 )
-                sections.append({'type':'code','content':m.group(2).strip(),'mode':resolved_mode})
+                sections.append({'type': 'code', 'content': m.group(2).strip(), 'mode': resolved_mode})
 
         elif marker_text.startswith('[VisualiseGraph:'):
             m = re.search(graph_pattern, marker_text, re.DOTALL)
@@ -264,7 +111,7 @@ def parse_prompt_with_markers(prompt: str) -> dict:
                 parts      = m.group(1).lower().split('|')
                 graph_type = parts[0].strip()
                 theme      = parts[1].strip() if len(parts) > 1 else None
-                sections.append({'type':'graph','graph_type':graph_type,'theme':theme,'content':m.group(2).strip()})
+                sections.append({'type': 'graph', 'graph_type': graph_type, 'theme': theme, 'content': m.group(2).strip()})
 
         current_pos = match.end()
 
@@ -273,8 +120,11 @@ def parse_prompt_with_markers(prompt: str) -> dict:
         sections.append({'type': 'text', 'content': remaining})
         clean_text += remaining
 
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-    return {'clean_text': clean_text, 'sections': sections, 'original_prompt': prompt}
+    return {
+        'clean_text':      re.sub(r'\s+', ' ', clean_text).strip(),
+        'sections':        sections,
+        'original_prompt': prompt,
+    }
 
 
 def parse_graph_data(content: str) -> dict:
@@ -289,6 +139,8 @@ def parse_graph_data(content: str) -> dict:
     return data
 
 
+# ── Section timing ─────────────────────────────────────────────────────────────
+
 def calculate_section_timings(clean_text, sections, total_duration, prefs):
     filtered = [
         s for s in sections
@@ -298,44 +150,33 @@ def calculate_section_timings(clean_text, sections, total_duration, prefs):
     if not filtered:
         return []
 
-    text_chars = sum(len(s['content']) for s in filtered if s['type'] == 'text')
+    text_chars   = sum(len(s['content']) for s in filtered if s['type'] == 'text')
+    min_required = sum(8.0 if s['type'] == 'code' else 6.0 if s['type'] == 'graph' else 0 for s in filtered)
 
     if text_chars == 0:
         dur = total_duration / len(filtered)
-        return [{**s, 'start_time': i*dur, 'end_time': (i+1)*dur}
-                for i, s in enumerate(filtered)]
+        return [{**s, 'start_time': i * dur, 'end_time': (i + 1) * dur} for i, s in enumerate(filtered)]
 
-    min_required    = sum(
-        8.0 if s['type'] == 'code' else 6.0 if s['type'] == 'graph' else 0
-        for s in filtered
-    )
     actual_duration = max(total_duration, min_required + text_chars * 0.05)
-    time_per_char   = (actual_duration - min_required) / text_chars if text_chars else 0
+    time_per_char   = (actual_duration - min_required) / text_chars
 
     timed, current = [], 0.0
     for s in filtered:
-        dur = (
-            len(s['content']) * time_per_char if s['type'] == 'text' else
-            10.0 if s['type'] == 'code' else 6.0
-        )
+        dur = len(s['content']) * time_per_char if s['type'] == 'text' else 10.0 if s['type'] == 'code' else 6.0
         timed.append({**s, 'start_time': current, 'end_time': current + dur})
         current += dur
     return timed
 
 
-def display_header():
-    print("\n" + "="*60)
-    print("TEXT TO VIDEO GENERATOR WITH VISUALIZERS")
-    print("="*60 + "\n")
-
+# ── UI helpers ─────────────────────────────────────────────────────────────────
 
 def prompt_yes_no(question: str, default: bool = True) -> bool:
     suffix = " (Y/n): " if default else " (y/N): "
     while True:
         r = input(question + suffix).strip().lower()
-        if r == "":            return default
-        if r in ("y","yes"):  return True
-        if r in ("n","no"):   return False
+        if r == "":          return default
+        if r in ("y","yes"): return True
+        if r in ("n","no"):  return False
         print("❌ Please enter 'y' or 'n'.")
 
 
@@ -354,7 +195,10 @@ def select_from_list(items, prompt="Select an option"):
 
 
 def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
-    display_header()
+    print("\n" + "="*60)
+    print("TEXT TO VIDEO GENERATOR WITH VISUALIZERS")
+    print("="*60 + "\n")
+
     has_code  = any(s['type'] == 'code'  for s in parsed_sections)
     has_graph = any(s['type'] == 'graph' for s in parsed_sections)
 
@@ -370,11 +214,9 @@ def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
         "narrative_style":      getattr(config, 'NARRATIVE_STYLE', 'wordblurin'),
     }
 
+    prefs["test_fps"] = config.FPS if prefs["generate_audio"] else 5
     if not prefs["generate_audio"]:
-        prefs["test_fps"] = 5
         print("ℹ️  Test mode: 5 FPS")
-    else:
-        prefs["test_fps"] = FPS
 
     if not file_mode:
         if has_code:
@@ -382,14 +224,13 @@ def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
         if has_graph:
             prefs["graph_theme"] = select_from_list(["heaven","dark","matrix"], "Graph theme")
         prefs["narrative_theme"] = select_from_list(["dark","heaven","matrix"], "Narrative text theme")
-        prefs["narrative_style"] = select_from_list(
-            ANIM_STYLES,
-            "Narrative animation style (typewriter / wordblurin / linescan)"
-        )
+        prefs["narrative_style"] = select_from_list(ANIM_STYLES, "Narrative animation style")
 
     print(f"\n  ✓ Narrative: theme={prefs['narrative_theme']}, style={prefs['narrative_style']}")
     return prefs
 
+
+# ── Audio helpers ──────────────────────────────────────────────────────────────
 
 def create_silent_audio(duration: float) -> AudioFileClip:
     import wave
@@ -408,6 +249,35 @@ def create_silent_audio(duration: float) -> AudioFileClip:
     return AudioFileClip(tmp.name)
 
 
+# ── Narrative text → HTML clip (Playwright, deterministic timeline) ────────────
+
+def _build_narrative_html(
+    sections: list,
+    theme: str,
+    anim_style: str,
+) -> tuple[list, str]:
+    """Prepare narrative lines and rendered HTML string. Returns (all_lines, html_str)."""
+    with open(os.path.abspath(NARRATIVE_TEMPLATE_PATH), "r", encoding="utf-8") as f:
+        template = f.read()
+
+    text_sections = [s for s in sections if s['type'] == 'text']
+    all_lines     = _text_sections_to_narrative_lines(text_sections)
+
+    css_abs = os.path.abspath(os.path.join(_SCRIPT_DIR, "static", "master.css"))
+    css_url = f"file:///{css_abs.replace(os.sep, '/')}"
+
+    html = template
+    html = html.replace('href="master.css"',      f'href="{css_url}"')
+    html = html.replace("THEME_PLACEHOLDER",       theme)
+    html = html.replace("NARRATIVE_JSON",          json.dumps(all_lines))
+    html = html.replace("ACTIVE_LINE_IDX",         "0")
+    html = html.replace("SHOW_BOOT_PLACEHOLDER",   "false")
+    html = html.replace("FOOTER_TEXT_PLACEHOLDER", '""')
+    html = html.replace("LINE_DELAY_PLACEHOLDER",  "0")
+    html = html.replace("ANIM_STYLE_PLACEHOLDER",  anim_style)
+    html = html.replace("LINE_DURATION_PLACEHOLDER", str(LINE_DURATION_MS))
+
+    return all_lines, html
 
 
 def create_text_clip_optimized(
@@ -415,160 +285,111 @@ def create_text_clip_optimized(
     duration: float,
     theme: str = "dark",
     anim_style: str = "wordblurin",
-    font=None,
+    playwright_page=None,
 ) -> VideoClip:
     """Render narrative text via narrative_visualiser.html + Playwright.
 
-    Multi-frame burst per line: captures _BURST_FRAMES screenshots spread
-    across each line's full animation window so the word/character motion
-    is captured, not just the settled final state.
-    """
-    import io as _io
+    Uses a deterministic time-driven approach: MoviePy calls make_frame(t),
+    which pushes window.__videoTime into the page. The HTML renderAtTime()
+    function advances the narrative based on that value.
 
+    IMPORTANT: `playwright_page` must be a live Playwright Page object whose
+    browser/context will remain open for the entire duration of write_videofile().
+    The caller (generate_main_video) owns the Playwright lifecycle.
+
+    LINE_DURATION_MS in this file must match LINE_DURATION in the HTML.
+    """
     if not HAS_PLAYWRIGHT:
         raise RuntimeError(
             "Playwright required.\n"
             "Install: pip install playwright && playwright install chromium"
         )
 
-    tmpl_path = os.path.abspath(NARRATIVE_TEMPLATE_PATH)
-    with open(tmpl_path, "r", encoding="utf-8") as f:
-        template = f.read()
+    if playwright_page is None:
+        raise RuntimeError(
+            "create_text_clip_optimized requires a live `playwright_page` argument.\n"
+            "Playwright must be started in the caller and kept alive until after "
+            "write_videofile() completes."
+        )
 
-    # Validate style
     if anim_style not in ANIM_STYLES:
         print(f"  ⚠️  Unknown style '{anim_style}', falling back to 'wordblurin'")
         anim_style = "wordblurin"
 
-    text_sections = [s for s in sections if s['type'] == 'text']
-    all_lines     = _text_sections_to_narrative_lines(text_sections)
+    all_lines, html_str = _build_narrative_html(sections, theme, anim_style)
 
     if not all_lines:
-        black = np.zeros((VIDEO_HEIGHT, VIDEO_WIDTH, 3), dtype=np.uint8)
+        black = np.zeros((config.VIDEO_HEIGHT, config.VIDEO_WIDTH, 3), dtype=np.uint8)
         return VideoClip(lambda t: black, duration=duration)
 
-    # Absolute path to master.css for file:// loading
-    css_abs = os.path.abspath(os.path.join(_SCRIPT_DIR, "static", "master.css"))
-    css_url = f"file:///{css_abs.replace(os.sep, '/')}"
+    tmp_path = os.path.join(tempfile.gettempdir(), "narrative_full.html")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(html_str)
 
-    def _render_html(lines_so_far: list, active_idx: int) -> str:
-        html = template
-        html = html.replace('href="master.css"', f'href="{css_url}"')
-        html = html.replace("THEME_PLACEHOLDER",       theme)
-        html = html.replace("NARRATIVE_JSON",          json.dumps(lines_so_far))
-        html = html.replace("ACTIVE_LINE_IDX",         str(active_idx))
-        html = html.replace("SHOW_BOOT_PLACEHOLDER",   "false")
-        html = html.replace("FOOTER_TEXT_PLACEHOLDER", '""')
-        html = html.replace("LINE_DELAY_PLACEHOLDER",  "0")
-        html = html.replace("ANIM_STYLE_PLACEHOLDER",  anim_style)
-        return html
-
-    total_lines  = len(all_lines)
-    total_frames = total_lines * _BURST_FRAMES
     print(
-        f"  🖼  Pre-rendering {total_lines} lines × {_BURST_FRAMES} burst frames "
-        f"= {total_frames} screenshots  [{anim_style} / {theme}]"
+        f"  🖼  Deterministic render: {len(all_lines)} lines  "
+        f"[{anim_style} / {theme}]  LINE_DURATION={LINE_DURATION_MS}ms"
     )
 
-    # (line_idx, burst_idx, frame_array)
-    state_frames: list[tuple[int, int, np.ndarray]] = []
+    page = playwright_page
+    page.goto(f"file:///{os.path.abspath(tmp_path)}")
+    page.wait_for_timeout(300)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            viewport={"width": VIDEO_WIDTH, "height": VIDEO_HEIGHT},
-            device_scale_factor=1,
-        )
-        page = context.new_page()
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
 
-        for line_idx in range(total_lines):
-            lines_so_far = all_lines[: line_idx + 1]
-            html_str     = _render_html(lines_so_far, line_idx)
-            html_tmp     = os.path.join(
-                tempfile.gettempdir(), f"narrative_{line_idx}.html"
-            )
-            with open(html_tmp, "w", encoding="utf-8") as f:
-                f.write(html_str)
-
-            page.goto(f"file:///{os.path.abspath(html_tmp)}")
-
-            # Calculate this line's animation window
-            line_data  = all_lines[line_idx]
-            anim_total = _line_animation_ms(line_data['text'], line_data['bold'], anim_style)
-            timestamps = _burst_timestamps_ms(anim_total)
-
-            # Brief initial render pause
-            page.wait_for_timeout(60)
-
-            for burst_i, ts_ms in enumerate(timestamps):
-                wait_here = max(0, ts_ms - (60 if burst_i == 0 else timestamps[burst_i - 1]))
-                if wait_here > 0:
-                    page.wait_for_timeout(wait_here)
-
-                png   = page.screenshot(full_page=False)
-                img   = Image.open(_io.BytesIO(png)).convert("RGB")
-                frame = np.array(img)
-
-                if frame.shape[:2] != (VIDEO_HEIGHT, VIDEO_WIDTH):
-                    frame = np.array(
-                        Image.fromarray(frame).resize(
-                            (VIDEO_WIDTH, VIDEO_HEIGHT), Image.LANCZOS
-                        )
-                    )
-                state_frames.append((line_idx, burst_i, frame))
-
-            # Wait out remainder before moving to next line
-            elapsed   = timestamps[-1] + 60
-            remainder = max(0, anim_total - elapsed)
-            if remainder > 0:
-                page.wait_for_timeout(remainder)
-
-            try:
-                os.unlink(html_tmp)
-            except OSError:
-                pass
-
-            if (line_idx + 1) % 5 == 0 or line_idx == total_lines - 1:
-                print(f"    ✓ line {line_idx+1}/{total_lines}  "
-                      f"({(line_idx+1)*_BURST_FRAMES}/{total_frames} frames)")
-
-        context.close()
-        browser.close()
-
-    # ── Map frames to video timeline ───────────────────────────────────────
+    # Work out which portion of the video timeline is text
     text_section_timing = [s for s in sections if s['type'] == 'text']
     text_start = text_section_timing[0]['start_time']  if text_section_timing else 0.0
     text_end   = text_section_timing[-1]['end_time']   if text_section_timing else duration
-    text_dur   = max(text_end - text_start, 0.1)
 
-    secs_per_line = text_dur / total_lines
-    last_frame    = state_frames[-1][2]
-
-    timed_frames: list[tuple[float, np.ndarray]] = []
-    for line_idx, burst_i, frame in state_frames:
-        line_data  = all_lines[line_idx]
-        anim_total = _line_animation_ms(line_data['text'], line_data['bold'], anim_style)
-        timestamps = _burst_timestamps_ms(anim_total)
-        rel        = timestamps[burst_i] / float(anim_total)   # 0.0 → 1.0
-
-        line_t_start = text_start + line_idx * secs_per_line
-        video_t      = line_t_start + rel * secs_per_line
-        timed_frames.append((video_t, frame))
-
-    timed_frames.sort(key=lambda x: x[0])
-    frame_times  = [tf[0] for tf in timed_frames]
-    frame_arrays = [tf[1] for tf in timed_frames]
+    # Capture the initial frame (used for t < text_start)
+    first_png   = page.screenshot(full_page=False)
+    first_frame = np.array(Image.open(io.BytesIO(first_png)).convert("RGB"))
 
     def make_frame(t: float) -> np.ndarray:
-        if t < text_start:   return frame_arrays[0]
-        if t >= text_end:    return last_frame
-        idx = bisect.bisect_right(frame_times, t) - 1
-        return frame_arrays[max(0, min(idx, len(frame_arrays) - 1))]
+        if t < text_start:
+            return first_frame
+
+        rel_t  = min(t - text_start, text_end - text_start)
+        vid_ms = int(rel_t * 1000)
+
+        page.evaluate(f"window.__videoTime = {vid_ms}")
+
+        png   = page.screenshot(full_page=False)
+        frame = np.array(Image.open(io.BytesIO(png)).convert("RGB"))
+
+        if frame.shape[:2] != (config.VIDEO_HEIGHT, config.VIDEO_WIDTH):
+            frame = np.array(
+                Image.fromarray(frame).resize(
+                    (config.VIDEO_WIDTH, config.VIDEO_HEIGHT), Image.LANCZOS
+                )
+            )
+        return frame
 
     return VideoClip(make_frame, duration=duration)
 
 
-# ── Code clip renderer ────────────────────────────────────────────────────────
+# ── Visualiser clip renderers ─────────────────────────────────────────────────
+
+def _extract_code_title(code: str) -> str:
+    for line in code.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        for kw in ('async def ', 'def ', 'class '):
+            if line.startswith(kw):
+                name = line[len(kw):].split('(')[0].split(':')[0].strip()
+                return f"{kw.strip()} {name}"
+        if '=' in line and not line.startswith(('if ', 'while ', 'for ', 'return')):
+            var = line.split('=')[0].strip()
+            if var.isidentifier():
+                return var
+        return line[:40] + ('...' if len(line) > 40 else '')
+    return "script.py"
+
 
 def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
     code_clips = {}
@@ -584,23 +405,23 @@ def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
     for i, section in enumerate(timed_sections):
         if section['type'] != 'code':
             continue
-        theme = prefs.get('code_theme', config.CODE_VIS_DEFAULT_THEME)
-        mode  = section.get('mode') or prefs.get('code_mode', config.CODE_VIS_DEFAULT_MODE)
+        theme   = prefs.get('code_theme', config.CODE_VIS_DEFAULT_THEME)
+        mode    = section.get('mode') or prefs.get('code_mode', config.CODE_VIS_DEFAULT_MODE)
+        sec_dur = section['end_time'] - section['start_time']
+        lead_in = min(_CODE_CLIP_LEAD_IN_S, sec_dur * 0.5)
+
         try:
-            clip    = create_code_video_clip(section['content'], theme, mode, config.CODE_VIS_DURATION)
-            sec_dur = section['end_time'] - section['start_time']
-            clip    = clip.resized((VIDEO_WIDTH, VIDEO_HEIGHT))
-            clip    = clip.with_duration(min(sec_dur, clip.duration))
-            clip    = clip.with_start(section['start_time'])
+            clip = create_code_video_clip(section['content'], theme, mode, config.CODE_VIS_DURATION)
+            clip = clip.resized((config.VIDEO_WIDTH, config.VIDEO_HEIGHT))
+            clip = clip.with_duration(min(sec_dur - lead_in, clip.duration))
+            clip = clip.with_start(section['start_time'] + lead_in)
             code_clips[i] = clip
-            print(f"  ✅ Code clip {i+1} (mode: {mode})")
+            print(f"  ✅ Code clip {i+1} (mode: {mode}, lead-in: {lead_in:.2f}s)")
         except Exception as e:
             print(f"  ❌ Code clip {i+1}: {e}")
             import traceback; traceback.print_exc()
     return code_clips
 
-
-# ── Graph clip renderer ───────────────────────────────────────────────────────
 
 def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
     graph_clips = {}
@@ -619,12 +440,10 @@ def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
             continue
         sec_dur = section['end_time'] - section['start_time']
         try:
-            silent      = create_silent_audio(sec_dur)
             fn          = create_bar_chart_clip if graph_type == 'bar' else create_line_graph_clip
             clip        = fn(data=graph_data, title="Data Visualization",
-                             audio_clip=silent, theme=theme)
-            clip        = clip.with_duration(sec_dur).with_start(section['start_time'])
-            graph_clips[i] = clip
+                             audio_clip=create_silent_audio(sec_dur), theme=theme)
+            graph_clips[i] = clip.with_duration(sec_dur).with_start(section['start_time'])
             print(f"  ✅ Graph clip {i+1} ({graph_type}, {sec_dur:.1f}s)")
         except Exception as e:
             print(f"  ❌ Graph clip {i+1}: {e}")
@@ -639,7 +458,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
         prefs = {}
 
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-
+    video_path = os.path.join(config.OUTPUT_DIR, "output_video.mp4")
     parsed     = parse_prompt_with_markers(prompt)
     clean_text = parsed['clean_text']
     sections   = parsed['sections']
@@ -647,7 +466,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     for i, s in enumerate(sections):
         print(f"  {i+1}. {s['type'].upper()}: {s['content'][:60].strip()}...")
 
-    # Audio
+    # ── Audio ──────────────────────────────────────────────────────────────────
     if prefs.get("generate_audio", True):
         print("\n🎙️  Generating audio...")
         client = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
@@ -661,6 +480,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
                 f.write(chunk)
         print("  ✅ Audio generated")
         audio_clip = AudioFileClip(audio_path)
+        print(f"  🔊 Audio duration: {audio_clip.duration:.2f}s, fps: {audio_clip.fps}")
     else:
         print("\n⏭️  Skipping audio (test mode) — 30s silent placeholder")
         audio_clip = create_silent_audio(30.0)
@@ -670,38 +490,73 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     timed_sections = calculate_section_timings(clean_text, sections, duration, prefs)
 
     if timed_sections and timed_sections[-1]['end_time'] > duration:
-        actual = timed_sections[-1]['end_time']
-        print(f"⏱️  Extending duration {duration:.1f}s → {actual:.1f}s")
+        duration = timed_sections[-1]['end_time']
+        print(f"⏱️  Extending duration → {duration:.1f}s")
         if not prefs.get("generate_audio", True):
             audio_clip.close()
-            audio_clip = create_silent_audio(actual)
-        duration = actual
+            audio_clip = create_silent_audio(duration)
 
-    theme       = prefs.get("narrative_theme", getattr(config, 'NARRATIVE_THEME', 'dark'))
-    anim_style  = prefs.get("narrative_style",  getattr(config, 'NARRATIVE_STYLE', 'wordblurin'))
+    theme      = prefs.get("narrative_theme", getattr(config, 'NARRATIVE_THEME', 'dark'))
+    anim_style = prefs.get("narrative_style",  getattr(config, 'NARRATIVE_STYLE', 'wordblurin'))
     print(f"\n🖼  Building narrative text clip  [{anim_style} / {theme}]...")
-    text_clip = create_text_clip_optimized(
-        timed_sections, duration, theme=theme, anim_style=anim_style
+
+    pw         = sync_playwright().start()
+    pw_browser = pw.chromium.launch(headless=True)
+    pw_context = pw_browser.new_context(
+        viewport={"width": config.VIDEO_WIDTH, "height": config.VIDEO_HEIGHT},
+        device_scale_factor=1,
     )
+    pw_page = pw_context.new_page()
 
-    code_clips  = render_code_clips_parallel(timed_sections, prefs)
-    graph_clips = render_graph_clips_parallel(timed_sections, prefs)
+    try:
+        text_clip = create_text_clip_optimized(
+            timed_sections, duration,
+            theme=theme, anim_style=anim_style,
+            playwright_page=pw_page,
+        )
 
-    print("\n🎬 Compositing final video...")
-    clips      = [text_clip] + list(code_clips.values()) + list(graph_clips.values())
-    final_clip = CompositeVideoClip(clips).with_audio(audio_clip)
+        code_clips  = render_code_clips_parallel(timed_sections, prefs)
+        graph_clips = render_graph_clips_parallel(timed_sections, prefs)
 
-    video_path = os.path.join(config.OUTPUT_DIR, "output_video.mp4")
-    print(f"💾 Exporting → {video_path}")
-    final_clip.write_videofile(
-        video_path,
-        fps=prefs.get("test_fps", FPS),
-        codec='libx264',
-        preset='ultrafast' if not prefs.get("generate_audio", True) else 'medium',
-        audio_codec='aac',
-    )
-    print("✅ Video saved.")
+        _OVERLAY_DELAY_S = 2.0
+        for clips_dict in (code_clips, graph_clips):
+            for key, clip in clips_dict.items():
+                clips_dict[key] = clip.with_start(clip.start + _OVERLAY_DELAY_S).with_duration(
+                    max(0.1, clip.duration - _OVERLAY_DELAY_S)
+                )
 
+        print("\n🎬 Compositing final video...")
+        final_clip = CompositeVideoClip(
+            [text_clip] + list(code_clips.values()) + list(graph_clips.values())
+        )
+
+        final_clip.write_videofile(
+            video_path,
+            fps=prefs.get("test_fps", config.FPS),
+            codec='libx264',
+            preset='ultrafast' if not prefs.get("generate_audio", True) else 'medium',
+            audio=audio_path,          # ← pass the path directly
+            audio_codec='aac',
+            audio_fps=44100,
+            audio_bitrate='192k',
+        )
+        print("✅ Video saved.")
+
+    finally:
+        try:
+            pw_context.close()
+            pw_browser.close()
+            pw.stop()
+        except Exception:
+            pass
+
+    # Close all clips before touching the MP3 file
+    audio_clip.close()
+    final_clip.close()
+    for c in list(code_clips.values()) + list(graph_clips.values()):
+        c.close()
+
+    # Now safe to delete
     if prefs.get("generate_audio", True):
         if not save_mp3 and audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
@@ -709,12 +564,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
         elif audio_path:
             print(f"🎵 Audio: {audio_path}")
 
-    audio_clip.close()
-    final_clip.close()
-    for c in list(code_clips.values()) + list(graph_clips.values()):
-        c.close()
     return video_path
-
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -733,8 +583,10 @@ def main():
             return 1
         print(f"✓ Loaded from {sys.argv[1]}")
     else:
-        display_header()
-        print("Marker syntax:")
+        print("\n" + "="*60)
+        print("TEXT TO VIDEO GENERATOR WITH VISUALIZERS")
+        print("="*60)
+        print("\nMarker syntax:")
         print("  [VisualiseCode:1] ... [/VisualiseCode]   (typewriter)")
         print("  [VisualiseCode:0] ... [/VisualiseCode]   (static)")
         print("  [VisualiseGraph:bar|dark] k:v,k:v [/VisualiseGraph]")
@@ -744,12 +596,7 @@ def main():
             print("❌ No text provided.")
             return 1
 
-    parsed   = parse_prompt_with_markers(prompt)
-    sections = parsed['sections']
-    print(f"\n🔍 Detected {len(sections)} sections")
-
-    prefs = get_startup_preferences(sections, file_mode)
-
+    prefs      = get_startup_preferences(parse_prompt_with_markers(prompt)['sections'], file_mode)
     video_path = generate_main_video(prompt, save_mp3=prefs["save_mp3"], prefs=prefs)
     if not video_path:
         return 1
