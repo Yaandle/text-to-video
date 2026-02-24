@@ -18,36 +18,15 @@ import config
 from code_visualiser import create_code_video_clip
 from graph_visualiser import create_bar_chart_clip, create_line_graph_clip
 
-try:
-    from playwright.sync_api import sync_playwright
-    HAS_PLAYWRIGHT = True
-except ImportError:
-    HAS_PLAYWRIGHT = False
+from playwright.sync_api import sync_playwright
 
 _SCRIPT_DIR             = os.path.dirname(os.path.abspath(__file__))
 NARRATIVE_TEMPLATE_PATH = os.path.join(_SCRIPT_DIR, "static", "narrative_visualiser.html")
 
 # ── Animation timing constants ─────────────────────────────────────────────────
-_TW_GLYPH_MS        = 220
-_TW_H1_MS           = 1400
-_TW_H2_MS           = 900
-_TW_BODY_MS         = 600
-_WB_WORD_STAGGER_MS = 55
-_WB_LINE_BASE_MS    = 80
-_WB_H1_ANIM_MS      = 520
-_WB_H2_ANIM_MS      = 440
-_WB_BODY_ANIM_MS    = 360
-_WB_GLYPH_MS        = 180
-_LS_GLYPH_MS        = 160
-_LS_H1_MS           = 750
-_LS_H2_MS           = 580
-_LS_BODY_MS         = 440
-_CODE_CLIP_LEAD_IN_S = 1.5
-
-# ms per line for deterministic timeline (HTML renderAtTime uses this too)
-LINE_DURATION_MS = 1200
-
-ANIM_STYLES = ["typewriter", "wordblurin", "linescan"]
+LINE_DURATION_MS  = 1200
+_VIS_MIN_DURATION = 10.0   # seconds of display time given to each code/graph section
+ANIM_STYLES          = ["typewriter", "wordblurin", "linescan"]
 
 
 # ── Semantic helpers ───────────────────────────────────────────────────────────
@@ -141,33 +120,6 @@ def parse_graph_data(content: str) -> dict:
 
 # ── Section timing ─────────────────────────────────────────────────────────────
 
-def calculate_section_timings(clean_text, sections, total_duration, prefs):
-    filtered = [
-        s for s in sections
-        if not (s['type'] == 'code'  and not prefs.get('use_code_visualizer',  True))
-        and not (s['type'] == 'graph' and not prefs.get('use_graph_visualizer', True))
-    ]
-    if not filtered:
-        return []
-
-    text_chars   = sum(len(s['content']) for s in filtered if s['type'] == 'text')
-    min_required = sum(8.0 if s['type'] == 'code' else 6.0 if s['type'] == 'graph' else 0 for s in filtered)
-
-    if text_chars == 0:
-        dur = total_duration / len(filtered)
-        return [{**s, 'start_time': i * dur, 'end_time': (i + 1) * dur} for i, s in enumerate(filtered)]
-
-    actual_duration = max(total_duration, min_required + text_chars * 0.05)
-    time_per_char   = (actual_duration - min_required) / text_chars
-
-    timed, current = [], 0.0
-    for s in filtered:
-        dur = len(s['content']) * time_per_char if s['type'] == 'text' else 10.0 if s['type'] == 'code' else 6.0
-        timed.append({**s, 'start_time': current, 'end_time': current + dur})
-        current += dur
-    return timed
-
-
 # ── UI helpers ─────────────────────────────────────────────────────────────────
 
 def prompt_yes_no(question: str, default: bool = True) -> bool:
@@ -251,12 +203,7 @@ def create_silent_audio(duration: float) -> AudioFileClip:
 
 # ── Narrative text → HTML clip (Playwright, deterministic timeline) ────────────
 
-def _build_narrative_html(
-    sections: list,
-    theme: str,
-    anim_style: str,
-) -> tuple[list, str]:
-    """Prepare narrative lines and rendered HTML string. Returns (all_lines, html_str)."""
+def _build_narrative_html(sections: list, theme: str, anim_style: str) -> tuple[list, str]:
     with open(os.path.abspath(NARRATIVE_TEMPLATE_PATH), "r", encoding="utf-8") as f:
         template = f.read()
 
@@ -267,14 +214,14 @@ def _build_narrative_html(
     css_url = f"file:///{css_abs.replace(os.sep, '/')}"
 
     html = template
-    html = html.replace('href="master.css"',      f'href="{css_url}"')
-    html = html.replace("THEME_PLACEHOLDER",       theme)
-    html = html.replace("NARRATIVE_JSON",          json.dumps(all_lines))
-    html = html.replace("ACTIVE_LINE_IDX",         "0")
-    html = html.replace("SHOW_BOOT_PLACEHOLDER",   "false")
-    html = html.replace("FOOTER_TEXT_PLACEHOLDER", '""')
-    html = html.replace("LINE_DELAY_PLACEHOLDER",  "0")
-    html = html.replace("ANIM_STYLE_PLACEHOLDER",  anim_style)
+    html = html.replace('href="master.css"',        f'href="{css_url}"')
+    html = html.replace("THEME_PLACEHOLDER",         theme)
+    html = html.replace("NARRATIVE_JSON",            json.dumps(all_lines))
+    html = html.replace("ACTIVE_LINE_IDX",           "0")
+    html = html.replace("SHOW_BOOT_PLACEHOLDER",     "false")
+    html = html.replace("FOOTER_TEXT_PLACEHOLDER",   '""')
+    html = html.replace("LINE_DELAY_PLACEHOLDER",    "0")
+    html = html.replace("ANIM_STYLE_PLACEHOLDER",    anim_style)
     html = html.replace("LINE_DURATION_PLACEHOLDER", str(LINE_DURATION_MS))
 
     return all_lines, html
@@ -287,31 +234,13 @@ def create_text_clip_optimized(
     anim_style: str = "wordblurin",
     playwright_page=None,
 ) -> VideoClip:
-    """Render narrative text via narrative_visualiser.html + Playwright.
+    """Render narrative text via Playwright with pause/resume across vis sections.
 
-    Uses a deterministic time-driven approach: MoviePy calls make_frame(t),
-    which pushes window.__videoTime into the page. The HTML renderAtTime()
-    function advances the narrative based on that value.
-
-    IMPORTANT: `playwright_page` must be a live Playwright Page object whose
-    browser/context will remain open for the entire duration of write_videofile().
-    The caller (generate_main_video) owns the Playwright lifecycle.
-
-    LINE_DURATION_MS in this file must match LINE_DURATION in the HTML.
+    During code/graph windows the text animation is frozen at the last frame
+    it reached, then resumes from exactly that point when text comes back.
+    This is done by remapping real video time t -> text-only time, skipping
+    over every non-text window.
     """
-    if not HAS_PLAYWRIGHT:
-        raise RuntimeError(
-            "Playwright required.\n"
-            "Install: pip install playwright && playwright install chromium"
-        )
-
-    if playwright_page is None:
-        raise RuntimeError(
-            "create_text_clip_optimized requires a live `playwright_page` argument.\n"
-            "Playwright must be started in the caller and kept alive until after "
-            "write_videofile() completes."
-        )
-
     if anim_style not in ANIM_STYLES:
         print(f"  ⚠️  Unknown style '{anim_style}', falling back to 'wordblurin'")
         anim_style = "wordblurin"
@@ -340,27 +269,39 @@ def create_text_clip_optimized(
     except OSError:
         pass
 
-    # Work out which portion of the video timeline is text
-    text_section_timing = [s for s in sections if s['type'] == 'text']
-    text_start = text_section_timing[0]['start_time']  if text_section_timing else 0.0
-    text_end   = text_section_timing[-1]['end_time']   if text_section_timing else duration
+    # ── Build remap table ──────────────────────────────────────────────────────
+    # For each section we record: (real_start, real_end, kind, value)
+    #   kind='text'   → text_ms = (real_t - value) * 1000   where value = accumulated vis seconds before this section
+    #   kind='freeze' → text_ms = value (ms) held constant for the whole window
+    remap: list = []
+    accumulated_vis_s = 0.0
 
-    # Capture the initial frame (used for t < text_start)
-    first_png   = page.screenshot(full_page=False)
-    first_frame = np.array(Image.open(io.BytesIO(first_png)).convert("RGB"))
+    for s in sections:
+        rs  = s['start_time']
+        re_ = s['end_time']
+        if s['type'] == 'text':
+            remap.append((rs, re_, 'text', accumulated_vis_s))
+        else:
+            frozen_text_s = rs - accumulated_vis_s
+            remap.append((rs, re_, 'freeze', frozen_text_s))
+            accumulated_vis_s += re_ - rs
+
+    text_total_s = sum(s['end_time'] - s['start_time'] for s in sections if s['type'] == 'text')
+
+    def real_to_text_ms(t: float) -> int:
+        for (rs, re_, kind, val) in remap:
+            if rs <= t <= re_:
+                if kind == 'text':
+                    return int((t - val) * 1000)
+                else:
+                    return int(val * 1000)
+        return int(text_total_s * 1000)
 
     def make_frame(t: float) -> np.ndarray:
-        if t < text_start:
-            return first_frame
-
-        rel_t  = min(t - text_start, text_end - text_start)
-        vid_ms = int(rel_t * 1000)
-
+        vid_ms = real_to_text_ms(t)
         page.evaluate(f"window.__videoTime = {vid_ms}")
-
         png   = page.screenshot(full_page=False)
         frame = np.array(Image.open(io.BytesIO(png)).convert("RGB"))
-
         if frame.shape[:2] != (config.VIDEO_HEIGHT, config.VIDEO_WIDTH):
             frame = np.array(
                 Image.fromarray(frame).resize(
@@ -374,31 +315,17 @@ def create_text_clip_optimized(
 
 # ── Visualiser clip renderers ─────────────────────────────────────────────────
 
-def _extract_code_title(code: str) -> str:
-    for line in code.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        for kw in ('async def ', 'def ', 'class '):
-            if line.startswith(kw):
-                name = line[len(kw):].split('(')[0].split(':')[0].strip()
-                return f"{kw.strip()} {name}"
-        if '=' in line and not line.startswith(('if ', 'while ', 'for ', 'return')):
-            var = line.split('=')[0].strip()
-            if var.isidentifier():
-                return var
-        return line[:40] + ('...' if len(line) > 40 else '')
-    return "script.py"
+def render_code_clips(timed_sections: list, prefs: dict, pw_browser) -> dict:
+    """Render code clips by opening a fresh page on the *existing* browser.
 
-
-def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
+    Passing `pw_browser` avoids launching a second Playwright instance (which
+    would crash with "sync API inside asyncio loop" because the outer
+    sync_playwright context is already running).
+    """
     code_clips = {}
     if not prefs.get('use_code_visualizer', True):
         return code_clips
     if not any(s['type'] == 'code' for s in timed_sections):
-        return code_clips
-    if not HAS_PLAYWRIGHT:
-        print("\n❌ Playwright required for code visualization.")
         return code_clips
 
     print("\n🎨 Pre-rendering code visualizations...")
@@ -408,22 +335,24 @@ def render_code_clips_parallel(timed_sections: list, prefs: dict) -> dict:
         theme   = prefs.get('code_theme', config.CODE_VIS_DEFAULT_THEME)
         mode    = section.get('mode') or prefs.get('code_mode', config.CODE_VIS_DEFAULT_MODE)
         sec_dur = section['end_time'] - section['start_time']
-        lead_in = min(_CODE_CLIP_LEAD_IN_S, sec_dur * 0.5)
 
         try:
-            clip = create_code_video_clip(section['content'], theme, mode, config.CODE_VIS_DURATION)
+            clip = create_code_video_clip(
+                section['content'], theme, mode, config.CODE_VIS_DURATION,
+                pw_browser=pw_browser,
+            )
             clip = clip.resized((config.VIDEO_WIDTH, config.VIDEO_HEIGHT))
-            clip = clip.with_duration(min(sec_dur - lead_in, clip.duration))
-            clip = clip.with_start(section['start_time'] + lead_in)
+            clip = clip.with_duration(min(sec_dur, clip.duration))
+            clip = clip.with_start(section['start_time'])
             code_clips[i] = clip
-            print(f"  ✅ Code clip {i+1} (mode: {mode}, lead-in: {lead_in:.2f}s)")
+            print(f"  ✅ Code clip {i+1} (mode: {mode}, start: {section['start_time']:.2f}s, dur: {clip.duration:.2f}s)")
         except Exception as e:
             print(f"  ❌ Code clip {i+1}: {e}")
             import traceback; traceback.print_exc()
     return code_clips
 
 
-def render_graph_clips_parallel(timed_sections: list, prefs: dict) -> dict:
+def render_graph_clips(timed_sections: list, prefs: dict) -> dict:
     graph_clips = {}
     if not prefs.get('use_graph_visualizer', True):
         return graph_clips
@@ -462,44 +391,148 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     parsed     = parse_prompt_with_markers(prompt)
     clean_text = parsed['clean_text']
     sections   = parsed['sections']
+
     print(f"\n🔍 Parsed {len(sections)} sections:")
     for i, s in enumerate(sections):
         print(f"  {i+1}. {s['type'].upper()}: {s['content'][:60].strip()}...")
 
     # ── Audio ──────────────────────────────────────────────────────────────────
+    # Each text section is spoken separately so we can insert exact silence gaps
+    # where visualiser sections appear.  The final audio is the sections spliced
+    # together: spoken_1 | silence_for_vis | spoken_2 | ...
+    #
+    # This gives us ground-truth start/end times for every section that are
+    # locked to the actual audio waveform.
+
+    text_sections = [s for s in sections if s['type'] == 'text']
+
+    # ── Pre-calculate animation duration for each text section ────────────────
+    # Each line animates at LINE_DURATION_MS. Audio is time-stretched to match
+    # so speech stays exactly in sync with the text appearing on screen.
+    wrap_w = 32 if config.VIDEO_WIDTH < config.VIDEO_HEIGHT else config.TEXT_WRAP_WIDTH
+
+    def _anim_duration_for_section(ts: dict) -> float:
+        line_count = 0
+        for para in [p.strip() for p in ts['content'].strip().splitlines() if p.strip()]:
+            line_count += len(textwrap.wrap(para, width=wrap_w) or [para])
+        # Add a half-line buffer so audio trails slightly behind text appearance,
+        # ensuring words are visible before they are spoken.
+        return ((line_count + 0.5) * LINE_DURATION_MS) / 1000.0
+
+    anim_durations = [_anim_duration_for_section(ts) for ts in text_sections]
+    print(f"\n📐 Animation durations per text section: {[f'{d:.2f}s' for d in anim_durations]}")
+
     if prefs.get("generate_audio", True):
-        print("\n🎙️  Generating audio...")
+        print("\n🎙️  Generating audio (one request per text section)...")
         client = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
-        gen    = client.text_to_speech.convert(
-            text=clean_text, voice_id=config.VOICE_ID,
-            model_id=config.MODEL_ID, output_format="mp3_44100_128",
-        )
-        audio_path = os.path.join(config.OUTPUT_DIR, "output_audio.mp3")
-        with open(audio_path, "wb") as f:
-            for chunk in gen:
-                f.write(chunk)
-        print("  ✅ Audio generated")
-        audio_clip = AudioFileClip(audio_path)
-        print(f"  🔊 Audio duration: {audio_clip.duration:.2f}s, fps: {audio_clip.fps}")
+
+        spoken_clips: list[AudioFileClip] = []
+        for idx, ts in enumerate(text_sections):
+            spoken_text = re.sub(r'\s+', ' ', ts['content']).strip()
+            gen = client.text_to_speech.convert(
+                text=spoken_text, voice_id=config.VOICE_ID,
+                model_id=config.MODEL_ID, output_format="mp3_44100_128",
+            )
+            part_path = os.path.join(config.OUTPUT_DIR, f"audio_part_{idx}.mp3")
+            with open(part_path, "wb") as f:
+                for chunk in gen:
+                    f.write(chunk)
+
+            raw_clip   = AudioFileClip(part_path)
+            target_dur = anim_durations[idx]
+            print(f"  ✅ Part {idx+1}: raw={raw_clip.duration:.2f}s  target={target_dur:.2f}s")
+
+            if abs(raw_clip.duration - target_dur) > 0.05:
+                speed = max(0.5, min(2.0, raw_clip.duration / target_dur))
+                stretched_path = os.path.join(config.OUTPUT_DIR, f"audio_part_{idx}_s.mp3")
+                raw_clip.close()
+                os.system(
+                    f'ffmpeg -y -i "{part_path}" '
+                    f'-filter:a "atempo={speed:.6f}" '
+                    f'-q:a 2 "{stretched_path}" -loglevel error'
+                )
+                os.remove(part_path)
+                spoken_clips.append(AudioFileClip(stretched_path))
+                print(f"     → stretched {speed:.3f}x → {spoken_clips[-1].duration:.2f}s")
+            else:
+                spoken_clips.append(raw_clip)
     else:
-        print("\n⏭️  Skipping audio (test mode) — 30s silent placeholder")
-        audio_clip = create_silent_audio(30.0)
+        print("\n⏭️  Skipping audio (test mode)")
+        spoken_clips = [create_silent_audio(d) for d in anim_durations]
+
+    # ── Build timeline by walking sections in order ────────────────────────────
+    # Interleave spoken clips (for text) and silence gaps (for vis sections).
+    timed_sections: list[dict] = []
+    spoken_iter    = iter(spoken_clips)
+    cursor         = 0.0
+
+    for s in sections:
+        if s['type'] not in ('code', 'graph'):
+            ac  = next(spoken_iter)
+            dur = ac.duration
+        else:
+            dur = _VIS_MIN_DURATION
+
+        # Skip disabled visualiser types but still consume the spoken_iter slot
+        if s['type'] == 'code'  and not prefs.get('use_code_visualizer',  True):
+            cursor += dur
+            continue
+        if s['type'] == 'graph' and not prefs.get('use_graph_visualizer', True):
+            cursor += dur
+            continue
+
+        timed_sections.append({**s, 'start_time': cursor, 'end_time': cursor + dur})
+        cursor += dur
+
+    total_duration = cursor
+
+    print("\n⏱️  Section timings:")
+    for s in timed_sections:
+        label = s['content'][:50].replace('\n', ' ').strip() if s['type'] == 'text' else f"[{s['type'].upper()}]"
+        print(f"  {s['type']:5s}  {s['start_time']:6.2f}s → {s['end_time']:6.2f}s  {label!r}")
+
+    # ── Splice audio: spoken parts + silence gaps ──────────────────────────────
+    if prefs.get("generate_audio", True):
+        from moviepy.audio.AudioClip import concatenate_audioclips
+
+        audio_segments: list[AudioFileClip] = []
+        spoken_iter2 = iter(spoken_clips)
+
+        for s in sections:
+            if s['type'] not in ('code', 'graph'):
+                audio_segments.append(next(spoken_iter2))
+            else:
+                # Find the timed entry for this vis section to get exact duration
+                vis_dur = next(
+                    (t['end_time'] - t['start_time'] for t in timed_sections
+                     if t['type'] == s['type'] and t['content'] == s['content']),
+                    _VIS_MIN_DURATION,
+                )
+                audio_segments.append(create_silent_audio(vis_dur))
+
+        combined = concatenate_audioclips(audio_segments)
+        audio_path = os.path.join(config.OUTPUT_DIR, "output_audio.mp3")
+        combined.write_audiofile(audio_path, fps=44100, bitrate="192k", logger=None)
+        audio_clip = AudioFileClip(audio_path)
+        print(f"  🔊 Final audio: {audio_clip.duration:.2f}s")
+
+        # Clean up part files (both raw and stretched variants)
+        for idx in range(len(spoken_clips)):
+            for suffix in ["", "_s"]:
+                p = os.path.join(config.OUTPUT_DIR, f"audio_part_{idx}{suffix}.mp3")
+                if os.path.exists(p):
+                    os.remove(p)
+    else:
         audio_path = None
+        audio_clip = create_silent_audio(total_duration)
 
-    duration       = audio_clip.duration
-    timed_sections = calculate_section_timings(clean_text, sections, duration, prefs)
-
-    if timed_sections and timed_sections[-1]['end_time'] > duration:
-        duration = timed_sections[-1]['end_time']
-        print(f"⏱️  Extending duration → {duration:.1f}s")
-        if not prefs.get("generate_audio", True):
-            audio_clip.close()
-            audio_clip = create_silent_audio(duration)
+    duration = total_duration
 
     theme      = prefs.get("narrative_theme", getattr(config, 'NARRATIVE_THEME', 'dark'))
     anim_style = prefs.get("narrative_style",  getattr(config, 'NARRATIVE_STYLE', 'wordblurin'))
     print(f"\n🖼  Building narrative text clip  [{anim_style} / {theme}]...")
 
+    # One Playwright instance shared across narrative + code clips
     pw         = sync_playwright().start()
     pw_browser = pw.chromium.launch(headless=True)
     pw_context = pw_browser.new_context(
@@ -515,15 +548,9 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
             playwright_page=pw_page,
         )
 
-        code_clips  = render_code_clips_parallel(timed_sections, prefs)
-        graph_clips = render_graph_clips_parallel(timed_sections, prefs)
-
-        _OVERLAY_DELAY_S = 2.0
-        for clips_dict in (code_clips, graph_clips):
-            for key, clip in clips_dict.items():
-                clips_dict[key] = clip.with_start(clip.start + _OVERLAY_DELAY_S).with_duration(
-                    max(0.1, clip.duration - _OVERLAY_DELAY_S)
-                )
+        # Pass pw_browser so code_visualiser opens pages on the existing instance
+        code_clips  = render_code_clips(timed_sections, prefs, pw_browser)
+        graph_clips = render_graph_clips(timed_sections, prefs)
 
         print("\n🎬 Compositing final video...")
         final_clip = CompositeVideoClip(
@@ -535,7 +562,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
             fps=prefs.get("test_fps", config.FPS),
             codec='libx264',
             preset='ultrafast' if not prefs.get("generate_audio", True) else 'medium',
-            audio=audio_path,          # ← pass the path directly
+            audio=audio_path,
             audio_codec='aac',
             audio_fps=44100,
             audio_bitrate='192k',
@@ -550,13 +577,11 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
         except Exception:
             pass
 
-    # Close all clips before touching the MP3 file
     audio_clip.close()
     final_clip.close()
     for c in list(code_clips.values()) + list(graph_clips.values()):
         c.close()
 
-    # Now safe to delete
     if prefs.get("generate_audio", True):
         if not save_mp3 and audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
@@ -565,6 +590,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
             print(f"🎵 Audio: {audio_path}")
 
     return video_path
+
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -583,8 +609,8 @@ def main():
             return 1
         print(f"✓ Loaded from {sys.argv[1]}")
     else:
-        print("\n" + "="*60)
-        print("TEXT TO VIDEO GENERATOR WITH VISUALIZERS")
+        print("\n" + "="*30)
+        print("TEXT TO VIDEO ")
         print("="*60)
         print("\nMarker syntax:")
         print("  [VisualiseCode:1] ... [/VisualiseCode]   (typewriter)")

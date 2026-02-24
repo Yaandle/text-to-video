@@ -59,13 +59,13 @@ USE_CODE_VISUALIZER_DEFAULT  = True
 USE_GRAPH_VISUALIZER_DEFAULT = False
 
 # ── Narrative ─────────────────────────────────────────────────────────────────
-NARRATIVE_THEME = "dark"
+NARRATIVE_THEME = "matrix"  
 # Animation style for narrative text clip.
 # Options: "typewriter" | "wordblurin" | "linescan"
 # - typewriter : characters type in left-to-right (like code clips), glyph first
 # - wordblurin : words spring+blur in with stagger (smoothed from original)
 # - linescan   : line slides in from left with a light sweep highlight
-NARRATIVE_STYLE = "typewriter"
+NARRATIVE_STYLE = "blurin"
 
 # ── Code Visualizer ───────────────────────────────────────────────────────────
 CODE_VIS_DURATION      = 8.0
