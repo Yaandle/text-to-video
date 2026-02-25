@@ -12,6 +12,10 @@ outputs/
 *.mp3
 *.wav
 
+outputs/animation_frames/
+*.json.tmp
+
+
 # Python
 __pycache__/
 *.py[cod]
@@ -36,3 +40,18 @@ Thumbs.db
 
 # History
 history/
+
+
+# Node
+animations/node_modules/
+animations/dist/
+animations/package-lock.json
+
+
+
+# Playwright / Puppeteer browsers
+.local-chromium/
+.cache/
+
+# Temp HTML renders
+narrative_full.html

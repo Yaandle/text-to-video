@@ -1,0 +1,224 @@
+{
+  "version": "1.0.0",
+  "description": "Agent context catalogue for animation components available in the TypeScript/React pipeline. Each entry defines the component's capabilities, required data schema, best-use cases, and render parameters so the selection agent can make accurate choices.",
+  "render_pipeline": {
+    "entry": "animations/render.js",
+    "method": "puppeteer_headless",
+    "output_format": "mp4",
+    "frame_rate": 30,
+    "default_duration_seconds": 4
+  },
+  "marker_syntax": "[VisualiseAnimation:<component_id>] <data_string> [/VisualiseAnimation]",
+  "components": [
+    {
+      "id": "line_animated",
+      "display_name": "Animated Line Chart",
+      "library": "MUI X Charts",
+      "component_file": "animations/src/components/AnimatedLineChart.tsx",
+      "description": "A line chart where the line draws itself from left to right on load. Best for showing trends over time, continuous data, or growth trajectories.",
+      "best_for": [
+        "Time series data (monthly, yearly trends)",
+        "Growth over time",
+        "Comparing two continuous trends",
+        "Revenue, traffic, or metric trajectories"
+      ],
+      "not_suitable_for": [
+        "Categorical comparisons with no time axis",
+        "Proportional/part-of-whole data",
+        "Sparse data with fewer than 3 points"
+      ],
+      "data_schema": {
+        "type": "object",
+        "required": ["series", "xAxis"],
+        "properties": {
+          "title": { "type": "string", "description": "Chart title shown above" },
+          "xAxis": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "X-axis labels (e.g. ['Jan', 'Feb', 'Mar'] or ['2020', '2021', '2022'])",
+            "min_length": 3,
+            "max_length": 12
+          },
+          "series": {
+            "type": "array",
+            "description": "One or two data series",
+            "max_items": 2,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": { "type": "string" },
+                "data": { "type": "array", "items": { "type": "number" } }
+              }
+            }
+          },
+          "yAxisLabel": { "type": "string", "description": "Optional Y-axis unit label" },
+          "theme": { "type": "string", "enum": ["dark", "light"], "default": "dark" }
+        }
+      },
+      "data_string_format": "title:<title>,x:<x1>|<x2>|<x3>,series1:<label>:<v1>|<v2>|<v3>,series2:<label>:<v1>|<v2>|<v3>",
+      "data_string_example": "title:Monthly Revenue,x:Jan|Feb|Mar|Apr|May|Jun,series1:2023:4.1|5.2|6.0|7.3|8.1|9.4,series2:2024:5.0|6.8|7.2|9.1|10.3|12.0",
+      "render_params": {
+        "width": 1280,
+        "height": 720,
+        "duration_seconds": 4,
+        "animation": "draw_on_load"
+      }
+    },
+    {
+      "id": "scatter_animated",
+      "display_name": "Animated Scatter Chart",
+      "library": "MUI X Charts",
+      "component_file": "animations/src/components/AnimatedScatterChart.tsx",
+      "description": "Scatter points fade and scale in with staggered delay. Best for showing correlation between two variables, distributions, or clustering.",
+      "best_for": [
+        "Correlation between two numeric variables",
+        "Showing distribution or spread of data",
+        "Clustering or grouping patterns",
+        "Statistical relationships (e.g. spend vs return)"
+      ],
+      "not_suitable_for": [
+        "Time series without a numeric X axis",
+        "Fewer than 5 data points",
+        "Categorical X axis"
+      ],
+      "data_schema": {
+        "type": "object",
+        "required": ["series"],
+        "properties": {
+          "title": { "type": "string" },
+          "xAxisLabel": { "type": "string", "description": "Label for X axis variable" },
+          "yAxisLabel": { "type": "string", "description": "Label for Y axis variable" },
+          "series": {
+            "type": "array",
+            "max_items": 3,
+            "description": "One to three scatter series (groups)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": { "type": "string" },
+                "data": {
+                  "type": "array",
+                  "description": "Array of {x, y} pairs",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "x": { "type": "number" },
+                      "y": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "theme": { "type": "string", "enum": ["dark", "light"], "default": "dark" }
+        }
+      },
+      "data_string_format": "title:<title>,xlabel:<label>,ylabel:<label>,series1:<label>:<x1>,<y1>|<x2>,<y2>,series2:<label>:<x1>,<y1>|<x2>,<y2>",
+      "data_string_example": "title:Ad Spend vs Conversions,xlabel:Spend ($k),ylabel:Conversions,series1:Product A:1.2,45|2.4,88|3.1,102|4.5,140,series2:Product B:1.0,30|2.0,55|3.5,90|5.0,160",
+      "render_params": {
+        "width": 1280,
+        "height": 720,
+        "duration_seconds": 3,
+        "animation": "staggered_fade_in"
+      }
+    },
+    {
+      "id": "pie_animated",
+      "display_name": "Animated Pie / Donut Chart",
+      "library": "MUI X Charts",
+      "component_file": "animations/src/components/AnimatedPieChart.tsx",
+      "description": "Pie or donut chart where segments sweep in sequentially. Best for showing proportional breakdowns or market share.",
+      "best_for": [
+        "Part-of-whole proportions",
+        "Market share breakdown",
+        "Budget or resource allocation",
+        "Category distribution (5 items or fewer)"
+      ],
+      "not_suitable_for": [
+        "More than 6 categories (gets illegible)",
+        "Time series data",
+        "Data where values are very close (hard to read visually)"
+      ],
+      "data_schema": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "title": { "type": "string" },
+          "variant": { "type": "string", "enum": ["pie", "donut"], "default": "donut" },
+          "data": {
+            "type": "array",
+            "min_items": 2,
+            "max_items": 6,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": { "type": "string" },
+                "value": { "type": "number" }
+              }
+            }
+          },
+          "theme": { "type": "string", "enum": ["dark", "light"], "default": "dark" }
+        }
+      },
+      "data_string_format": "title:<title>,variant:<pie|donut>,data:<label>:<value>,<label>:<value>,...",
+      "data_string_example": "title:Market Share 2024,variant:donut,data:Product A:42,Product B:28,Product C:18,Other:12",
+      "render_params": {
+        "width": 1280,
+        "height": 720,
+        "duration_seconds": 3,
+        "animation": "sweep_in_sequential"
+      }
+    }
+  ],
+  "grainient_backgrounds": {
+    "description": "Grain texture overlay from React Bits applied to all chart backgrounds for visual depth. Not a selectable component — applied automatically based on theme.",
+    "library": "React Bits - Grainient",
+    "themes": {
+      "dark": {
+        "base_colors": ["#0f0f14", "#1a1a2e"],
+        "grain_opacity": 0.08,
+        "gradient": "radial dark blue-black"
+      },
+      "light": {
+        "base_colors": ["#f8f8fc", "#eeeef8"],
+        "grain_opacity": 0.05,
+        "gradient": "radial soft off-white"
+      }
+    }
+  },
+  "agent_selection_rules": {
+    "description": "Rules the selection agent uses to pick the right component given a prompt section.",
+    "rules": [
+      {
+        "rule_id": "R1",
+        "condition": "Data has a time axis (months, years, quarters) and values are continuous",
+        "select": "line_animated",
+        "reason": "Line charts are the canonical choice for time series"
+      },
+      {
+        "rule_id": "R2",
+        "condition": "Data shows relationship or correlation between two numeric variables",
+        "select": "scatter_animated",
+        "reason": "Scatter is purpose-built for bivariate numeric relationships"
+      },
+      {
+        "rule_id": "R3",
+        "condition": "Data represents parts of a whole, shares, or allocations with <= 6 categories",
+        "select": "pie_animated",
+        "reason": "Pie/donut is the standard for proportional composition"
+      },
+      {
+        "rule_id": "R4",
+        "condition": "Data is categorical with discrete groups being compared on a single metric",
+        "select": "line_animated",
+        "reason": "Fallback: treat categories as X axis labels on a line chart rather than a bar (bar not yet in catalogue)"
+      },
+      {
+        "rule_id": "R5",
+        "condition": "Ambiguous — multiple components could work",
+        "select": "line_animated",
+        "reason": "Default to line_animated as the most versatile option"
+      }
+    ]
+  }
+}

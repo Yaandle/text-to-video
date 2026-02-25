@@ -1,5 +1,5 @@
 """
-graph_visualiser.py -
+graph_visualiser.py (depreciated)
 Graph Visualiser - Minimalist Animated Charts with HTML Preview
 Matches the terminal aesthetic and theme system of code_visualiser.py
 

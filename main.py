@@ -17,7 +17,7 @@ from elevenlabs.client import ElevenLabs
 import config
 from code_visualiser import create_code_video_clip
 from graph_visualiser import create_bar_chart_clip, create_line_graph_clip
-
+from animation_visualiser import generate_animation_clip
 from playwright.sync_api import sync_playwright
 
 _SCRIPT_DIR             = os.path.dirname(os.path.abspath(__file__))
@@ -61,9 +61,13 @@ def parse_prompt_with_markers(prompt: str) -> dict:
     sections, current_pos, clean_text = [], 0, ""
 
     combined_pattern = (
-        r'(\[VisualiseCode(?::[^\]]+)?\].*?\[/VisualiseCode\]'
-        r'|\[VisualiseGraph:[^\]]+\].*?\[/VisualiseGraph\])'
+        r'(?:'
+        r'\[VisualiseCode(?::[^\]]+)?\].*?\[/VisualiseCode\]'
+        r'|\[VisualiseGraph:[^\]]+\].*?\[/VisualiseGraph\]'
+        r'|\[VisualiseAnimation:[^\]]+\].*?\[/VisualiseAnimation\]'
+        r')'
     )
+    
     graph_pattern = r'\[VisualiseGraph:([^\]]+)\](.*?)\[/VisualiseGraph\]'
     code_pattern  = r'\[VisualiseCode(?::([^\]]+))?\](.*?)\[/VisualiseCode\]'
 
@@ -91,6 +95,15 @@ def parse_prompt_with_markers(prompt: str) -> dict:
                 graph_type = parts[0].strip()
                 theme      = parts[1].strip() if len(parts) > 1 else None
                 sections.append({'type': 'graph', 'graph_type': graph_type, 'theme': theme, 'content': m.group(2).strip()})
+
+        elif marker_text.startswith('[VisualiseAnimation:'):
+            m = re.search(r'\[VisualiseAnimation:([^\]]+)\](.*?)\[/VisualiseAnimation\]', marker_text, re.DOTALL)
+            if m:
+                sections.append({
+                    'type':         'animation',
+                    'component_id': m.group(1).strip(),
+                    'content':      m.group(2).strip(),
+                })        
 
         current_pos = match.end()
 
@@ -153,6 +166,7 @@ def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
 
     has_code  = any(s['type'] == 'code'  for s in parsed_sections)
     has_graph = any(s['type'] == 'graph' for s in parsed_sections)
+    has_animation = any(s['type'] == 'animation' for s in parsed_sections)
 
     prefs = {
         "generate_audio":       prompt_yes_no("Generate audio? (N to skip for testing)", default=True),
@@ -164,6 +178,7 @@ def get_startup_preferences(parsed_sections: list, file_mode: bool) -> dict:
         "graph_theme":          getattr(config, 'GRAPH_VIS_DEFAULT_THEME', 'dark'),
         "narrative_theme":      getattr(config, 'NARRATIVE_THEME', 'dark'),
         "narrative_style":      getattr(config, 'NARRATIVE_STYLE', 'wordblurin'),
+        "use_animation_visualizer": has_animation,
     }
 
     prefs["test_fps"] = config.FPS if prefs["generate_audio"] else 5
@@ -379,8 +394,38 @@ def render_graph_clips(timed_sections: list, prefs: dict) -> dict:
             import traceback; traceback.print_exc()
     return graph_clips
 
+def render_animation_clips(timed_sections: list, prefs: dict) -> dict:
+    
+    animation_clips = {}
+    print("\n✨ Pre-rendering animation visualizations...")
+    for i, section in enumerate(timed_sections):
+        if section['type'] != 'animation':
+            continue
+        sec_dur = section['end_time'] - section['start_time']
+        try:
+            clip_path = generate_animation_clip(
+                section_text=section.get('content', ''),
+                data_string=section['content'],
+                explicit_component_id=section.get('component_id', 'auto'),
+                width=config.VIDEO_WIDTH,
+                height=config.VIDEO_HEIGHT,
+            )
+            if clip_path:
+                from moviepy.video.io.VideoFileClip import VideoFileClip
+                clip = VideoFileClip(clip_path)
+                clip = clip.resized((config.VIDEO_WIDTH, config.VIDEO_HEIGHT))
+                clip = clip.with_duration(min(sec_dur, clip.duration))
+                clip = clip.with_start(section['start_time'])
+                animation_clips[i] = clip
+                print(f"  ✅ Animation clip {i+1} ({section['component_id']}, {sec_dur:.1f}s)")
+        except Exception as e:
+            print(f"  ❌ Animation clip {i+1}: {e}")
+            import traceback; traceback.print_exc()
+    return animation_clips
 
-# ── Main video generator ──────────────────────────────────────────────────────
+
+
+
 
 def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) -> str:
     if prefs is None:
@@ -467,7 +512,7 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     cursor         = 0.0
 
     for s in sections:
-        if s['type'] not in ('code', 'graph'):
+        if s['type'] not in ('code', 'graph', 'animation'):
             ac  = next(spoken_iter)
             dur = ac.duration
         else:
@@ -551,10 +596,14 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
         # Pass pw_browser so code_visualiser opens pages on the existing instance
         code_clips  = render_code_clips(timed_sections, prefs, pw_browser)
         graph_clips = render_graph_clips(timed_sections, prefs)
-
+        animation_clips = render_animation_clips(timed_sections, prefs) 
+         
         print("\n🎬 Compositing final video...")
         final_clip = CompositeVideoClip(
-            [text_clip] + list(code_clips.values()) + list(graph_clips.values())
+            [text_clip]
+            + list(code_clips.values())
+            + list(graph_clips.values())
+            + list(animation_clips.values())   
         )
 
         final_clip.write_videofile(
@@ -592,7 +641,6 @@ def generate_main_video(prompt: str, save_mp3: bool = True, prefs: dict = None) 
     return video_path
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
     file_mode = len(sys.argv) > 1
@@ -616,6 +664,8 @@ def main():
         print("  [VisualiseCode:1] ... [/VisualiseCode]   (typewriter)")
         print("  [VisualiseCode:0] ... [/VisualiseCode]   (static)")
         print("  [VisualiseGraph:bar|dark] k:v,k:v [/VisualiseGraph]")
+        print("  [VisualiseAnimation:auto] <data> [/VisualiseAnimation]  (agent selects)")
+        print("  [VisualiseAnimation:pie_animated] <data> [/VisualiseAnimation]")
         print()
         prompt = input("Enter text (with optional markers): ").strip()
         if not prompt:
