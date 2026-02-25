@@ -45,8 +45,6 @@ history/
 # Node
 animations/node_modules/
 animations/dist/
-animations/package-lock.json
-
 
 
 # Playwright / Puppeteer browsers
@@ -55,3 +53,11 @@ animations/package-lock.json
 
 # Temp HTML renders
 narrative_full.html
+
+# Vite cache
+animations/.vite/
+.vite/
+
+# Root node_modules 
+node_modules/
+
