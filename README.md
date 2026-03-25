@@ -4,6 +4,11 @@ A small Python system that converts text (or code / data) into narrated videos u
 
 Built to practice end-to-end execution: prompt → audio → video → artifact.
 
+
+![Project Screenshot](static/video1.mp4)
+
+
+
 ## Execution Framework (Fibonacci Ladder)
 
 This project follows a Fibonacci Ladder execution model.
