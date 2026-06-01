@@ -9,61 +9,6 @@ Built to practice end-to-end execution: prompt → audio → video → artifact.
 
 
 
-## Execution Framework (Fibonacci Ladder)
-
-This project follows a Fibonacci Ladder execution model.
-
-Each stage prioritises completion and correctness over features.
-
-### Stage 1 — Foundational Win ✅
-
-Goal: Finish something real, small, and runnable.
-
-* Single language (Python)
-* Local execution only
-* Real input → real output
-* No deployment concerns
-
-**Outcome:**
-`video_generator.py` generates:
-* narrated audio (.mp3)
-* a rendered video (.mp4)
-* Secrets handled via `.env`
-* Output artifacts written to disk
-
-### Stage 2 — Structured Variations ✅
-
-Goal: Reuse the same pipeline with controlled variation.
-
-Built multiple generators on the same foundation:
-
-1.  Text narration → video
-2.  Code → narrated code visualization
-3.  Data → narrated graph animation
-
-**All variants:**
-* Share config
-* Share audio generation logic
-* Differ only in visual rendering
-
-### Stage 3 — System Formation 🧩 (in progress)
-
-Goal: Turn scripts into a small, coherent system.
-
-**Characteristics present:**
-* Single `config.py` as source of truth
-* Clear separation:
-    * configuration
-    * audio generation
-    * rendering
-* No hard-coded secrets
-* Minimal duplication
-
-**Not claimed yet:**
-* Production hardening
-* API stability
-* Performance optimisation
-
 ---
 
 ## What the System Does
@@ -187,3 +132,59 @@ Format:
 - heaven (light)
 - dark
 - matrix
+
+
+## Execution Framework (Fibonacci Ladder)
+
+This project follows a Fibonacci Ladder execution model.
+
+Each stage prioritises completion and correctness over features.
+
+### Stage 1 — Foundational Win ✅
+
+Goal: Finish something real, small, and runnable.
+
+* Single language (Python)
+* Local execution only
+* Real input → real output
+* No deployment concerns
+
+**Outcome:**
+`video_generator.py` generates:
+* narrated audio (.mp3)
+* a rendered video (.mp4)
+* Secrets handled via `.env`
+* Output artifacts written to disk
+
+### Stage 2 — Structured Variations ✅
+
+Goal: Reuse the same pipeline with controlled variation.
+
+Built multiple generators on the same foundation:
+
+1.  Text narration → video
+2.  Code → narrated code visualization
+3.  Data → narrated graph animation
+
+**All variants:**
+* Share config
+* Share audio generation logic
+* Differ only in visual rendering
+
+### Stage 3 — System Formation 🧩 (in progress)
+
+Goal: Turn scripts into a small, coherent system.
+
+**Characteristics present:**
+* Single `config.py` as source of truth
+* Clear separation:
+    * configuration
+    * audio generation
+    * rendering
+* No hard-coded secrets
+* Minimal duplication
+
+**Not claimed yet:**
+* Production hardening
+* API stability
+* Performance optimisation
