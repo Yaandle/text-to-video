@@ -192,4 +192,4 @@ Goal: Turn scripts into a small, coherent system.
 
 ---
 New code_visualise.py
-![Dual Ultrasonic Sensor Code](static/DualUltrasonic Sensor Code.mp4)
+![Dual Ultrasonic Sensor Code](static/DualUltrasonic_Sensor_Code.mp4)
