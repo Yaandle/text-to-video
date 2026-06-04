@@ -8,7 +8,6 @@ Built to practice end-to-end execution: prompt → audio → video → artifact.
 ![Project Screenshot](static/gif1.gif)
 
 
-
 ---
 
 ## What the System Does
@@ -188,3 +187,9 @@ Goal: Turn scripts into a small, coherent system.
 * Production hardening
 * API stability
 * Performance optimisation
+
+
+
+---
+New code_visualise.py
+![Dual Ultrasonic Sensor Code](static/DualUltrasonic Sensor Code.mp4)
