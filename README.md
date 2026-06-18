@@ -191,5 +191,5 @@ Goal: Turn scripts into a small, coherent system.
 
 
 ---
-New code_visualise.py
-![(static/DualUltrasonic_Sensor_Code.gif]
+![New code_visualise.py](static/DualUltrasonic_Sensor_Code.gif)
+
