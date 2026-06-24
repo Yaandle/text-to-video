@@ -192,11 +192,13 @@ Goal: Turn scripts into a small, coherent system.
 ## Examples
 ---
 
-Updated Code Visualiser:
-![New code_visualise.py](static/DualUltrasonic_Sensor_Code.gif)
+### Updated Code Visualiser:
 
-Basic Text to Video:
-![Text to Video](static/video2.gif)
+- ![New code_visualise.py](static/DualUltrasonic_Sensor_Code.gif)
+
+###Basic Text to Video:
+
+- ![Text to Video](static/video2.gif)
 
 
 
