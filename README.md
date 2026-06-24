@@ -188,10 +188,15 @@ Goal: Turn scripts into a small, coherent system.
 * API stability
 * Performance optimisation
 
-
-
 ---
+## Examples
+---
+
+Updated Code Visualiser:
 ![New code_visualise.py](static/DualUltrasonic_Sensor_Code.gif)
+
+Basic Text to Video:
 ![Text to Video](static/video2.gif)
+
 
 
